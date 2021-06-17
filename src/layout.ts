@@ -261,6 +261,7 @@ MerpsInstructionLayout.addVariant(
 );
 MerpsInstructionLayout.addVariant(19, struct([]), 'SettleFunds');
 MerpsInstructionLayout.addVariant(21, struct([]), 'UpdateRootBank');
+MerpsInstructionLayout.addVariant(23, struct([]), 'TestRalfs');
 
 const instructionMaxSpan = Math.max(
   // @ts-ignore

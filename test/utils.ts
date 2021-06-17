@@ -14,7 +14,7 @@ import { StubOracleLayout } from '../src/layout';
 import { createAccountInstruction, sleep } from '../src/utils';
 
 export const MerpsProgramId = new PublicKey(
-  'Hc12EyQQ3XVNEE5URg7XjjtZA8sbUPnMeT1CXGbwN6ei',
+  'Hm3U4wFaR66SmuXj66u9AuUNUqa6T8Ldb5D9uHBs3SHd',
 );
 export const DexProgramId = new PublicKey(
   'DESVgJVGajEgKGXhb6XmqDHGz3VjdgP7rEVESBgxmroY',
