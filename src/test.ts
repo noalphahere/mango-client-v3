@@ -18,7 +18,7 @@ function assertEq(msg, a, b) {
 }
 
 const merpsProgramId = new PublicKey(
-  'Hm3U4wFaR66SmuXj66u9AuUNUqa6T8Ldb5D9uHBs3SHd',
+  'viQTKtBmaGvx3nugHcvijedy9ApbDowqiGYq35qAJqq',
 );
 const serumDexPk = new PublicKey(
   'DESVgJVGajEgKGXhb6XmqDHGz3VjdgP7rEVESBgxmroY',
