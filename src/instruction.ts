@@ -10,25 +10,6 @@ import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { Order } from '@project-serum/serum/lib/market';
 import { I80F48 } from './fixednum';
 
-export function makeTestCommandInstruction(
-  programId: PublicKey,
-  productPk: PublicKey,
-  pricePk: PublicKey,
-  adminPk: PublicKey,
-): TransactionInstruction {
-  const keys = [
-    { isSigner: false, isWritable: false, pubkey: productPk },
-    { isSigner: false, isWritable: false, pubkey: pricePk },
-    { isSigner: true, isWritable: false, pubkey: adminPk },
-  ];
-  const data = encodeMerpsInstruction({ TestRalfs: {} });
-  return new TransactionInstruction({
-    keys,
-    data,
-    programId: programId,
-  });
-}
-
 export function makeInitMerpsGroupInstruction(
   programId: PublicKey,
   merpsGroupPk: PublicKey,

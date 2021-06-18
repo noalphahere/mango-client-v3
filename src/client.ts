@@ -38,7 +38,6 @@ import {
 import MerpsGroup, { QUOTE_INDEX } from './MerpsGroup';
 import MerpsAccount from './MerpsAccount';
 import {
-  makeTestCommandInstruction,
   makeAddOracleInstruction,
   makeAddPerpMarketInstruction,
   makeAddSpotMarketInstruction,
@@ -549,23 +548,6 @@ export class MerpsClient {
     }
 
     return parsedRootBanks;
-  }
-
-  async testRalfs(
-    productPk: PublicKey,
-    pricePk: PublicKey,
-    admin: Account,
-  ): Promise<TransactionSignature> {
-    const instruction = makeTestCommandInstruction(
-      this.programId,
-      productPk,
-      pricePk,
-      admin.publicKey,
-    );
-    const transaction = new Transaction();
-    transaction.add(instruction);
-    const additionalSigners = [];
-    return await this.sendTransaction(transaction, admin, additionalSigners);
   }
 
   async addOracle(
