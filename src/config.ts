@@ -156,6 +156,18 @@ export interface MarketConfig {
   eventsKey: PublicKey;
 }
 
+export function getAllMarkets(group: GroupConfig) {
+  const spotMarkets = group.spotMarkets.map<MarketConfig>((m) => ({
+    kind: 'spot',
+    ...m,
+  }));
+  const perpMarkets = group.perpMarkets.map<MarketConfig>((m) => ({
+    kind: 'perp',
+    ...m,
+  }));
+  return spotMarkets.concat(perpMarkets);
+}
+
 export function getMarketByBaseSymbolAndKind(
   group: GroupConfig,
   symbol: string,
@@ -168,11 +180,35 @@ export function getMarketByBaseSymbolAndKind(
   return { kind, ...market } as MarketConfig;
 }
 
-export function getTokenByMint(group: GroupConfig, mint: string | PublicKey) {
-  if (mint instanceof PublicKey) {
-    mint = mint.toBase58();
+export function getMarketByPublicKey(
+  group: GroupConfig,
+  key: string | Buffer | PublicKey,
+) {
+  if (!(key instanceof PublicKey)) {
+    key = new PublicKey(key);
   }
-  return group.tokens.find((t) => t.mintKey.toBase58() === mint);
+  const spot = group.spotMarkets.find((m) =>
+    m.publicKey.equals(key as PublicKey),
+  );
+  if (spot) {
+    return { kind: 'spot', ...spot } as MarketConfig;
+  }
+  const perp = group.perpMarkets.find((m) =>
+    m.publicKey.equals(key as PublicKey),
+  );
+  if (perp) {
+    return { kind: 'perp', ...perp } as MarketConfig;
+  }
+}
+
+export function getTokenByMint(
+  group: GroupConfig,
+  mint: string | Buffer | PublicKey,
+) {
+  if (!(mint instanceof PublicKey)) {
+    mint = new PublicKey(mint);
+  }
+  return group.tokens.find((t) => t.mintKey.equals(mint as PublicKey));
 }
 
 export function getTokenBySymbol(group: GroupConfig, symbol: string) {
