@@ -577,21 +577,19 @@ export class PerpAccount {
 
     const health = bidsHealth.lt(asksHealth) ? bidsHealth : asksHealth;
     if (this.basePosition.gt(new BN(0))) {
-      console.log('if');
+      const x = longFunding
+        .sub(this.longSettledFunding)
+        .mul(I80F48.fromI64(this.basePosition));
 
-      return health.sub(
-        longFunding
-          .sub(this.longSettledFunding)
-          .mul(I80F48.fromI64(this.basePosition)),
-      );
+      console.log('if', x.toString());
+
+      return health.sub(x);
     } else {
-      console.log('else');
-
-      return health.add(
-        shortFunding
-          .sub(this.shortSettledFunding)
-          .mul(I80F48.fromI64(this.basePosition)),
-      );
+      const x = shortFunding
+        .sub(this.shortSettledFunding)
+        .mul(I80F48.fromI64(this.basePosition));
+      console.log('else', x);
+      return health.add(x);
     }
   }
 }
