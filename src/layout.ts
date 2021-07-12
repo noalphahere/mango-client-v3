@@ -530,6 +530,8 @@ export class PerpAccount {
     let health = this.quotePosition.sub(
       I80F48.fromI64(baseChange.mul(perpMarketInfo.baseLotSize)).mul(price),
     );
+    console.log('health: ', health);
+
     if (newBase.gt(new BN(0))) {
       health = health.add(
         I80F48.fromI64(newBase.mul(perpMarketInfo.baseLotSize))
