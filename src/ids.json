@@ -36,20 +36,20 @@
       "oracles": [
         {
           "symbol": "BTC",
-          "publicKey": "2NLkwe36XPh8SWPNGdsjFmQTz17iVJhj5oz42576vNDn"
+          "publicKey": "BUpNMXRQQtuFDSHzii4yrTKFLchUSQqLn9KtSvGGfXbu"
         }
       ],
       "perpMarkets": [
         {
           "name": "BTC-PERP",
-          "publicKey": "Hqv8mtYV3RvYBCtbJWbXKzTFbMJiDF7VQtiETarfBLZL",
+          "publicKey": "95aoZRdRobWYaVrEB8YWL5AxWqEJTfEFT3H1bcuNTHth",
           "baseSymbol": "BTC",
           "baseDecimals": 6,
           "quoteDecimals": 9,
-          "marketIndex": 0,
-          "bidsKey": "5quMunDHXGEHB8uogmmgoGBBQsTBibNy6bZTKjDR652a",
-          "asksKey": "9XH4QvTAKJKq3Uvk4RZ66Ge4cLdKZDg1S6Dihw6ZDHNH",
-          "eventsKey": "EyyfycumxrToU7aeGah753ifMYuBP21PPDksd3SmLzTq"
+          "marketIndex": 1,
+          "bidsKey": "9hXBEfso438VbsGd9Vr8HaR53TUpr3t64TWMRdbrUFrN",
+          "asksKey": "CEvkTjQ17W3sSSR8bg4wWYXPJJ4rgHW8WuBGaANrmRXY",
+          "eventsKey": "EEz3NjLrqdorUtZ9kUf1qvGhF6ZQAxNzu88EWaEgpJXq"
         }
       ],
       "spotMarkets": [
@@ -59,7 +59,7 @@
           "baseSymbol": "BTC",
           "baseDecimals": 6,
           "quoteDecimals": 9,
-          "marketIndex": 0,
+          "marketIndex": 1,
           "bidsKey": "8ovMqp4Tb7xe4r3bXdeyzzucMQfemcn2Wi2j55aYS2rR",
           "asksKey": "GJ5PKrUkGrjHRhP1kNztgfHixYXyNpsRy8S2StBQ171n",
           "eventsKey": "4xJ5T9c7m5wyt9Xw4PnP6yAU1sdqaegsiyGC6CvG2mUJ"

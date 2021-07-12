@@ -36,7 +36,6 @@ class _I80F48Layout extends Blob {
   }
 
   encode(src, b, offset) {
-    src = src.toTwos(8 * this['length']);
     return super.encode(src.toArrayLike(Buffer, 'le', this['span']), b, offset);
   }
 }
