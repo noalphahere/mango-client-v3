@@ -563,6 +563,8 @@ export class PerpAccount {
       this.openOrders.bidsQuantity,
     );
 
+    console.log('bidsHealth', bidsHealth, bidsHealth.toString());
+
     const asksHealth = this.simPositionHealth(
       perpMarketInfo,
       price,
@@ -570,14 +572,21 @@ export class PerpAccount {
       liabWeight,
       this.openOrders.asksQuantity.neg(),
     );
+
+    console.log('asksHealth', asksHealth, asksHealth.toString());
+
     const health = bidsHealth.lt(asksHealth) ? bidsHealth : asksHealth;
     if (this.basePosition.gt(new BN(0))) {
+      console.log('if');
+
       return health.sub(
         longFunding
           .sub(this.longSettledFunding)
           .mul(I80F48.fromI64(this.basePosition)),
       );
     } else {
+      console.log('else');
+
       return health.add(
         shortFunding
           .sub(this.shortSettledFunding)
