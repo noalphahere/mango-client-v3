@@ -140,6 +140,48 @@ export default class MangoAccount {
     return assetsVal;
   }
 
+  getPerpVal(
+    mangoGroup: MangoGroup,
+    mangoCache: MangoCache,
+    index: number,
+    healthType: HealthType,
+  ) {
+    const perpAccount = this.perpAccounts[index];
+    const assetWeight =
+      healthType === 'Maint'
+        ? mangoGroup.perpMarkets[index].maintAssetWeight
+        : mangoGroup.perpMarkets[index].initAssetWeight;
+    const price = mangoCache.priceCache[index].price;
+    const basePosition = new I80F48(perpAccount.basePosition);
+
+    if (basePosition.gt(ZERO_I80F48)) {
+      const longFunding = mangoCache.perpMarketCache[index].longFunding.sub(
+        perpAccount.longSettledFunding,
+      );
+      const quotePosition = perpAccount.quotePosition.sub(
+        longFunding.mul(basePosition),
+      );
+
+      if (quotePosition.gt(ZERO_I80F48)) {
+        return basePosition.mul(assetWeight).mul(price).add(quotePosition);
+      } else {
+        return basePosition.mul(assetWeight).mul(price);
+      }
+    } else {
+      const shortFunding = mangoCache.perpMarketCache[index].shortFunding.sub(
+        perpAccount.shortSettledFunding,
+      );
+      const quotePosition = perpAccount.quotePosition.sub(
+        shortFunding.mul(basePosition),
+      );
+      if (quotePosition.gt(ZERO_I80F48)) {
+        return quotePosition;
+      } else {
+        ZERO_I80F48;
+      }
+    }
+  }
+
   getAssetsVal(
     mangoGroup: MangoGroup,
     mangoCache: MangoCache,
@@ -389,37 +431,38 @@ export default class MangoAccount {
       ),
     );
 
-    const assetWeight = ONE_I80F48;
     for (let i = 0; i < mangoGroup.numOracles; i++) {
       value = value.add(
-        this.getSpotVal(mangoGroup, mangoCache, i, assetWeight),
+        this.getUiDeposit(mangoCache.rootBankCache[i], mangoGroup, i)
+          .sub(this.getUiBorrow(mangoCache.rootBankCache[i], mangoGroup, i))
+          .mul(mangoGroup.getPrice(i, mangoCache)),
       );
     }
 
     // TODO add perp vals
 
-    // for (let i = 0; i < this.spotOpenOrdersAccounts.length; i++) {
-    //   const oos = this.spotOpenOrdersAccounts[i];
-    //   if (oos != undefined) {
-    //     value = value.add(
-    //       I80F48.fromNumber(
-    //         nativeToUi(
-    //           oos.baseTokenTotal.toNumber(),
-    //           mangoGroup.tokens[i].decimals,
-    //         ),
-    //       ).mul(mangoGroup.getPrice(i, mangoCache)),
-    //     );
-    //     value = value.add(
-    //       I80F48.fromNumber(
-    //         nativeToUi(
-    //           oos.quoteTokenTotal.toNumber() +
-    //             oos['referrerRebatesAccrued'].toNumber(),
-    //           mangoGroup.tokens[QUOTE_INDEX].decimals,
-    //         ),
-    //       ),
-    //     );
-    //   }
-    // }
+    for (let i = 0; i < this.spotOpenOrdersAccounts.length; i++) {
+      const oos = this.spotOpenOrdersAccounts[i];
+      if (oos != undefined) {
+        value = value.add(
+          I80F48.fromNumber(
+            nativeToUi(
+              oos.baseTokenTotal.toNumber(),
+              mangoGroup.tokens[i].decimals,
+            ),
+          ).mul(mangoGroup.getPrice(i, mangoCache)),
+        );
+        value = value.add(
+          I80F48.fromNumber(
+            nativeToUi(
+              oos.quoteTokenTotal.toNumber() +
+                oos['referrerRebatesAccrued'].toNumber(),
+              mangoGroup.tokens[QUOTE_INDEX].decimals,
+            ),
+          ),
+        );
+      }
+    }
 
     return value;
   }
