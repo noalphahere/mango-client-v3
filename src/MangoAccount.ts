@@ -389,38 +389,37 @@ export default class MangoAccount {
       ),
     );
 
+    const assetWeight = ONE_I80F48;
     for (let i = 0; i < mangoGroup.numOracles; i++) {
       value = value.add(
-        this.getUiDeposit(mangoCache.rootBankCache[i], mangoGroup, i)
-          .sub(this.getUiBorrow(mangoCache.rootBankCache[i], mangoGroup, i))
-          .mul(mangoGroup.getPrice(i, mangoCache)),
+        this.getSpotVal(mangoGroup, mangoCache, i, assetWeight),
       );
     }
 
     // TODO add perp vals
 
-    for (let i = 0; i < this.spotOpenOrdersAccounts.length; i++) {
-      const oos = this.spotOpenOrdersAccounts[i];
-      if (oos != undefined) {
-        value = value.add(
-          I80F48.fromNumber(
-            nativeToUi(
-              oos.baseTokenTotal.toNumber(),
-              mangoGroup.tokens[i].decimals,
-            ),
-          ).mul(mangoGroup.getPrice(i, mangoCache)),
-        );
-        value = value.add(
-          I80F48.fromNumber(
-            nativeToUi(
-              oos.quoteTokenTotal.toNumber() +
-                oos['referrerRebatesAccrued'].toNumber(),
-              mangoGroup.tokens[QUOTE_INDEX].decimals,
-            ),
-          ),
-        );
-      }
-    }
+    // for (let i = 0; i < this.spotOpenOrdersAccounts.length; i++) {
+    //   const oos = this.spotOpenOrdersAccounts[i];
+    //   if (oos != undefined) {
+    //     value = value.add(
+    //       I80F48.fromNumber(
+    //         nativeToUi(
+    //           oos.baseTokenTotal.toNumber(),
+    //           mangoGroup.tokens[i].decimals,
+    //         ),
+    //       ).mul(mangoGroup.getPrice(i, mangoCache)),
+    //     );
+    //     value = value.add(
+    //       I80F48.fromNumber(
+    //         nativeToUi(
+    //           oos.quoteTokenTotal.toNumber() +
+    //             oos['referrerRebatesAccrued'].toNumber(),
+    //           mangoGroup.tokens[QUOTE_INDEX].decimals,
+    //         ),
+    //       ),
+    //     );
+    //   }
+    // }
 
     return value;
   }
