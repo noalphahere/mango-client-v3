@@ -174,6 +174,7 @@ export default class MangoGroup {
       const decoded = NodeBankLayout.decode(acc.accountInfo.data);
       return new NodeBank(acc.publicKey, decoded);
     });
+    console.log('node bank accounts', nodeBankAccounts);
 
     let nodeBankIndex = 0;
     for (let i = 0; i < parsedRootBanks.length; i++) {
