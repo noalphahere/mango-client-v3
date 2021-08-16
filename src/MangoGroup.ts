@@ -186,6 +186,13 @@ export default class MangoGroup {
       const numNodeBanks = rootBank.nodeBanks.filter(
         (pk) => !pk.equals(zeroKey),
       ).length;
+      console.log(
+        'getting: ',
+        nodeBankIndex,
+        numNodeBanks,
+        nodeBankAccounts.slice(nodeBankIndex, numNodeBanks),
+      );
+
       rootBank.nodeBankAccounts = nodeBankAccounts.slice(
         nodeBankIndex,
         numNodeBanks,
