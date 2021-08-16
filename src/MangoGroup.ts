@@ -164,7 +164,9 @@ export default class MangoGroup {
       return new RootBank(acc.publicKey, decoded);
     });
 
-    const nodeBankPks = parsedRootBanks.map((bank) => bank.nodeBanks);
+    const nodeBankPks = parsedRootBanks.map((bank) =>
+      bank.nodeBanks.filter((key) => !key.equals(zeroKey)),
+    );
     const nodeBankAccts = await getMultipleAccounts(
       connection,
       nodeBankPks.flat(),
