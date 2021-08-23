@@ -144,6 +144,7 @@ export default class PerpAccount {
         price = new Big(fe.price);
         let quantity = new Big(fe.quantity);
 
+        console.log(userPk, fe.taker, fe.maker, fe.takerSide);
         if (
           (userPk === fe.taker.toString() && fe.takerSide === 'sell') ||
           (userPk === fe.maker.toString() && fe.takerSide === 'buy')
@@ -160,6 +161,14 @@ export default class PerpAccount {
         } else {
           baseChange = quantity;
         }
+        console.log(
+          'currBase',
+          currBase.toString(),
+          'quantity',
+          quantity.toString(),
+          'baseChange',
+          baseChange.toString(),
+        );
       }
 
       totalQuoteChange = totalQuoteChange.sub(baseChange.mul(price));
