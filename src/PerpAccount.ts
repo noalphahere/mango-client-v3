@@ -180,7 +180,12 @@ export default class PerpAccount {
         return totalQuoteChange.mul(NEG_ONE).div(basePos);
       }
     }
-    console.log('abs trade volume', x.toString());
+    console.log(
+      'abs trade volume',
+      x.toString(),
+      'curr base',
+      currBase.toString(),
+    );
     // If we haven't returned yet, there was an error or missing data
     // TODO - consider failing silently
     throw new Error('Trade history incomplete');
