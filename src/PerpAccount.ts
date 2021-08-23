@@ -116,6 +116,8 @@ export default class PerpAccount {
 
     let currBase = new Big(basePos);
     let totalQuoteChange = ZERO;
+
+    let x = ZERO;
     for (const event of events) {
       let price, baseChange;
       if ('liqor' in event) {
@@ -143,7 +145,7 @@ export default class PerpAccount {
         // TODO - verify this gives proper UI number
         price = new Big(fe.price);
         let quantity = new Big(fe.quantity);
-
+        x = x.add(quantity);
         console.log(userPk, fe.taker, fe.maker, fe.takerSide);
         if (
           (userPk === fe.taker.toString() && fe.takerSide === 'sell') ||
@@ -178,7 +180,7 @@ export default class PerpAccount {
         return totalQuoteChange.mul(NEG_ONE).div(basePos);
       }
     }
-
+    console.log('abs trade volume', x.toString());
     // If we haven't returned yet, there was an error or missing data
     // TODO - consider failing silently
     throw new Error('Trade history incomplete');
