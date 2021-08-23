@@ -118,6 +118,7 @@ export default class PerpAccount {
     let totalQuoteChange = ZERO;
 
     let x = ZERO;
+    console.log('num events', events.length);
     for (const event of events) {
       let price, baseChange;
       if ('liqor' in event) {
