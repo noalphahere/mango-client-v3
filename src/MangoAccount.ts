@@ -21,8 +21,14 @@ import RootBank from './RootBank';
 import BN from 'bn.js';
 import MangoGroup from './MangoGroup';
 import PerpAccount from './PerpAccount';
-import { ZERO_BN } from '.';
+import { MarketConfig, PerpOrder, ZERO_BN } from '.';
 import PerpMarket from './PerpMarket';
+import { Order } from '@project-serum/serum/lib/market';
+
+type OrderInfo = {
+  order: Order | PerpOrder;
+  market: { account: Market | PerpMarket; config: MarketConfig };
+};
 
 export default class MangoAccount {
   publicKey: PublicKey;
@@ -361,6 +367,58 @@ export default class MangoAccount {
 
     return health;
   }
+
+  /**
+   * Amount of native quote currency available to expand your position in this market
+   */
+  getMarketMarginAvailable(
+    mangoGroup: MangoGroup,
+    mangoCache: MangoCache,
+    marketIndex: number,
+    marketType: 'spot' | 'perp',
+  ): I80F48 {
+    const health = this.getHealth(mangoGroup, mangoCache, 'Init');
+
+    if (health.lte(ZERO_I80F48)) {
+      return ZERO_I80F48;
+    }
+    const w = getWeights(mangoGroup, marketIndex, 'Init');
+    const weight =
+      marketType === 'spot' ? w.spotAssetWeight : w.perpAssetWeight;
+    if (weight.gte(ONE_I80F48)) {
+      // This is actually an error state and should not happen
+      return health;
+    } else {
+      return health.div(ONE_I80F48.sub(weight));
+    }
+  }
+
+  /**
+   * Get token amount available to withdraw without borrowing.
+   */
+  getAvailableBalance(
+    mangoGroup: MangoGroup,
+    mangoCache: MangoCache,
+    tokenIndex: number,
+  ): I80F48 {
+    const health = this.getHealth(mangoGroup, mangoCache, 'Init');
+    const net = this.getNet(mangoCache.rootBankCache[tokenIndex], tokenIndex);
+
+    if (tokenIndex === QUOTE_INDEX) {
+      return health.min(net).max(ZERO_I80F48);
+    } else {
+      const w = getWeights(mangoGroup, tokenIndex, 'Init');
+
+      return net
+        .min(
+          health
+            .div(w.spotAssetWeight)
+            .div(mangoCache.priceCache[tokenIndex].price),
+        )
+        .max(ZERO_I80F48);
+    }
+  }
+
   /**
    * Return the spot, perps and quote currency values after adjusting for
    * worst case open orders scenarios. These values are not adjusted for health
