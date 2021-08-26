@@ -21,7 +21,7 @@ import RootBank from './RootBank';
 import BN from 'bn.js';
 import MangoGroup from './MangoGroup';
 import PerpAccount from './PerpAccount';
-import { MarketConfig, PerpOrder, ZERO_BN } from '.';
+import { getMultipleAccounts, MarketConfig, PerpOrder, ZERO_BN } from '.';
 import PerpMarket from './PerpMarket';
 import { Order } from '@project-serum/serum/lib/market';
 
@@ -82,19 +82,26 @@ export default class MangoAccount {
     connection: Connection,
     serumDexPk: PublicKey,
   ): Promise<(OpenOrders | undefined)[]> {
-    const promises: Promise<OpenOrders | undefined>[] = [];
+    console.log(
+      'pk: ',
+      this.spotOpenOrders.length,
+      this.spotOpenOrders.map((p) => p.toBase58()),
+    );
 
-    for (let i = 0; i < this.spotOpenOrders.length; i++) {
-      if (this.spotOpenOrders[i].equals(zeroKey)) {
-        promises.push(promiseUndef());
-      } else {
-        promises.push(
-          OpenOrders.load(connection, this.spotOpenOrders[i], serumDexPk),
-        );
-      }
-    }
+    const spotOpenOrderAccts = await getMultipleAccounts(
+      connection,
+      this.spotOpenOrders,
+    );
 
-    this.spotOpenOrdersAccounts = await Promise.all(promises);
+    console.log(
+      'spotOpenOrderAccts length',
+      spotOpenOrderAccts.length,
+      spotOpenOrderAccts,
+    );
+
+    this.spotOpenOrdersAccounts = spotOpenOrderAccts.map((o) =>
+      OpenOrders.fromAccountInfo(o.publicKey, o.accountInfo, serumDexPk),
+    );
     return this.spotOpenOrdersAccounts;
   }
 
