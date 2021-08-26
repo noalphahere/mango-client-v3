@@ -337,7 +337,7 @@ export async function getMultipleAccounts(
   // load connection commitment as a default
   commitment ||= connection.commitment;
 
-  const args = commitment ? [publicKeyStrs, { commitment }] : [publicKeyStrs];
+  const args = [publicKeyStrs, { commitment: 'processed' }];
   // @ts-ignore
   const resp = await connection._rpcRequest('getMultipleAccounts', args);
   if (resp.error) {

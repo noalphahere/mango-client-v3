@@ -16,7 +16,11 @@ export default class PerpEventQueue {
     out?: OutEvent;
     liquidate?: LiquidateEvent;
   }[] {
-    const events: { fill?: FillEvent; out?: OutEvent }[] = [];
+    const events: {
+      fill?: FillEvent;
+      out?: OutEvent;
+      liquidate?: LiquidateEvent;
+    }[] = [];
     const head = this.head.toNumber();
     for (let i = 0; i < this.count.toNumber(); i++) {
       events.push(this.events[(head + i) % this.events.length]);
@@ -74,7 +78,9 @@ export default class PerpEventQueue {
       out?: OutEvent;
       liquidate?: LiquidateEvent;
     }[] = [];
+
     let index = startIndex;
+
     while (!index.eq(endIndex)) {
       const event = this.events[index.toNumber()];
       if (event.fill || event.out || event.liquidate) results.push(event);
