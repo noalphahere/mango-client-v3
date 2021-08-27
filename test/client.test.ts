@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion, no-console */
-import { Account } from '@solana/web3.js';
+import { Account, PublicKey } from '@solana/web3.js';
 import { expect } from 'chai';
 import * as Test from './utils';
 import { MangoClient } from '../src';
@@ -11,6 +11,7 @@ import MangoAccount from '../src/MangoAccount';
 describe('MangoClient', async () => {
   let client: MangoClient;
   let payer: Account;
+  let feesVault: PublicKey;
   const connection = Test.createDevnetConnection();
 
   before(async () => {
@@ -18,6 +19,7 @@ describe('MangoClient', async () => {
     sleep(2000); // sleeping because devnet rate limits suck
     payer = await Test.createAccount(connection);
     sleep(2000); // sleeping because devnet rate limits suck
+    feesVault = await Test.createTokenAccount(connection, Test.USDCMint, payer);
   });
 
   describe('initMangoGroup', async () => {
@@ -27,6 +29,7 @@ describe('MangoClient', async () => {
         Test.USDCMint,
         Test.MSRMMint,
         Test.DexProgramId,
+        feesVault,
         5,
         0.7,
         0.06,
@@ -56,6 +59,7 @@ describe('MangoClient', async () => {
         Test.USDCMint,
         Test.MSRMMint,
         Test.DexProgramId,
+        feesVault,
         5,
         0.7,
         0.06,
@@ -90,6 +94,7 @@ describe('MangoClient', async () => {
         Test.USDCMint,
         Test.MSRMMint,
         Test.DexProgramId,
+        feesVault,
         5,
         0.7,
         0.06,

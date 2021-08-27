@@ -51,6 +51,7 @@ import {
   makeCachePricesInstruction,
   makeCacheRootBankInstruction,
   makeCancelPerpOrderInstruction,
+  makeCancelAllPerpOrdersInstruction,
   makeCancelSpotOrderInstruction,
   makeChangePerpMarketParamsInstruction,
   makeConsumeEventsInstruction,
@@ -958,6 +959,7 @@ export class MangoClient {
     clientOrderId = 0,
     bookSideInfo?: AccountInfo<Buffer>, // ask if side === bid, bids if side === ask; if this is given; crank instruction is added
   ): Promise<TransactionSignature> {
+
     const marketIndex = mangoGroup.getPerpMarketIndex(perpMarket.publicKey);
 
     // TODO: this will not work for perp markets without spot market
@@ -965,7 +967,6 @@ export class MangoClient {
     const quoteTokenInfo = mangoGroup.tokens[QUOTE_INDEX];
     const baseUnit = Math.pow(10, baseTokenInfo.decimals);
     const quoteUnit = Math.pow(10, quoteTokenInfo.decimals);
-
     const nativePrice = new BN(price * quoteUnit)
       .mul(perpMarket.baseLotSize)
       .div(perpMarket.quoteLotSize.mul(new BN(baseUnit)));
@@ -1026,7 +1027,6 @@ export class MangoClient {
       );
       transaction.add(consumeInstruction);
     }
-
     return await this.sendTransaction(transaction, owner, additionalSigners);
   }
 
@@ -1048,6 +1048,31 @@ export class MangoClient {
       perpMarket.asks,
       order,
       invalidIdOk,
+    );
+
+    const transaction = new Transaction();
+    transaction.add(instruction);
+    const additionalSigners = [];
+
+    return await this.sendTransaction(transaction, owner, additionalSigners);
+  }
+
+  async cancelAllPerpOrders(
+    mangoGroup: MangoGroup,
+    mangoAccount: MangoAccount,
+    owner: Account | WalletAdapter,
+    perpMarket: PerpMarket,
+    limit: BN,
+  ): Promise<TransactionSignature> {
+    const instruction = makeCancelAllPerpOrdersInstruction(
+      this.programId,
+      mangoGroup.publicKey,
+      mangoAccount.publicKey,
+      owner.publicKey,
+      perpMarket.publicKey,
+      perpMarket.bids,
+      perpMarket.asks,
+      limit,
     );
 
     const transaction = new Transaction();

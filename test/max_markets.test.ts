@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion, no-console */
-import { Account, Connection } from '@solana/web3.js';
+import { Account, PublicKey, Connection } from '@solana/web3.js';
 import { Token } from '@solana/spl-token';
 import * as Test from './utils';
 import { MangoClient } from '../src';
@@ -10,11 +10,13 @@ import { QUOTE_INDEX } from '../src/layout';
 describe('MaxMarkets', async () => {
   let client: MangoClient;
   let payer: Account;
+  let feesVault: PublicKey;
   const connection: Connection = Test.createDevnetConnection();
 
   before(async () => {
     client = new MangoClient(connection, Test.MangoProgramId);
     payer = await Test.createAccount(connection, 10);
+    feesVault = await Test.createTokenAccount(connection, Test.USDCMint, payer);
   });
 
   describe('testOrdersX32', async () => {
@@ -37,6 +39,7 @@ describe('MaxMarkets', async () => {
         quoteMint.publicKey,
         Test.MSRMMint,
         Test.DexProgramId,
+        feesVault,
         5,
         Test.OPTIMAL_UTIL,
         Test.OPTIMAL_RATE,
