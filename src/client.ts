@@ -111,10 +111,12 @@ export const getUnixTs = () => {
 export class MangoClient {
   connection: Connection;
   programId: PublicKey;
+  options?: { backupConnections?: Connection[] };
 
-  constructor(connection: Connection, programId: PublicKey) {
+  constructor(connection: Connection, programId: PublicKey, opts = {}) {
     this.connection = connection;
     this.programId = programId;
+    this.options = opts;
   }
 
   async sendTransactions(
@@ -224,16 +226,28 @@ export class MangoClient {
       rawTransaction.length,
     );
 
+    const allConnections = [
+      this.connection,
+      ...(this.options?.backupConnections || []),
+    ];
     let done = false;
     (async () => {
       // TODO - make sure this works well on mainnet
-      await sleep(500);
+      let connectionIndex = 0;
       while (!done && getUnixTs() - startTime < timeout / 1000) {
+        let conn = this.connection;
         console.log(new Date().toUTCString(), ' sending tx ', txid);
-        this.connection.sendRawTransaction(rawTransaction, {
+        conn.sendRawTransaction(rawTransaction, {
           skipPreflight: true,
         });
-        await sleep(1000);
+        if (this.options?.backupConnections) {
+          conn = allConnections[connectionIndex];
+          connectionIndex =
+            connectionIndex === this.options?.backupConnections.length - 1
+              ? 0
+              : connectionIndex + 1;
+        }
+        await sleep(300);
       }
     })();
 
@@ -243,6 +257,7 @@ export class MangoClient {
         timeout,
         this.connection,
         confirmLevel,
+        this.options?.backupConnections || [],
       );
     } catch (err) {
       if (err.timeout) {

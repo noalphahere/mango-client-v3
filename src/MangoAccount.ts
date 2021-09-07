@@ -13,7 +13,6 @@ import {
   getWeights,
   nativeI80F48ToUi,
   nativeToUi,
-  promiseUndef,
   splitOpenOrders,
   zeroKey,
 } from './utils';

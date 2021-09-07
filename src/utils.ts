@@ -98,6 +98,7 @@ export async function awaitTransactionSignatureConfirmation(
   timeout: number,
   connection: Connection,
   confirmLevel: TransactionConfirmationStatus,
+  backupConnections: any[] = [],
 ) {
   let done = false;
 
@@ -140,13 +141,16 @@ export async function awaitTransactionSignatureConfirmation(
         done = true;
         console.log('WS error in setup', txid, e);
       }
+
+      let connectionIndex = 0;
+      const connections = [connection, ...backupConnections];
       while (!done) {
         // eslint-disable-next-line no-loop-func
         (async () => {
           try {
-            const signatureStatuses = await connection.getSignatureStatuses([
-              txid,
-            ]);
+            const conn = connections[connectionIndex];
+            const signatureStatuses = await conn.getSignatureStatuses([txid]);
+            connectionIndex = Math.floor(Math.random() * connections.length);
             const result = signatureStatuses && signatureStatuses.value[0];
             if (!done) {
               if (!result) {
