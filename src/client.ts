@@ -108,6 +108,16 @@ export const getUnixTs = () => {
   return new Date().getTime() / 1000;
 };
 
+export const SEND_CONNECTION = new Connection(
+  'https://solana-api.projectserum.com/',
+  'processed',
+);
+
+export const SEND_CONNECTION2 = new Connection(
+  'http://api.mainnet-beta.solana.com',
+  'processed',
+);
+
 export class MangoClient {
   connection: Connection;
   programId: PublicKey;
@@ -224,16 +234,19 @@ export class MangoClient {
       rawTransaction.length,
     );
 
+    const connections = [this.connection, SEND_CONNECTION, SEND_CONNECTION2];
+    let connectionIndex = 0;
     let done = false;
     (async () => {
       // TODO - make sure this works well on mainnet
-      await sleep(500);
       while (!done && getUnixTs() - startTime < timeout / 1000) {
         console.log(new Date().toUTCString(), ' sending tx ', txid);
-        this.connection.sendRawTransaction(rawTransaction, {
+        const conn = connections[connectionIndex];
+        conn.sendRawTransaction(rawTransaction, {
           skipPreflight: true,
         });
-        await sleep(1000);
+        connectionIndex = Math.floor(Math.random() * connections.length);
+        await sleep(500);
       }
     })();
 

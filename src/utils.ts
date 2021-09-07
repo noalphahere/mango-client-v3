@@ -17,6 +17,7 @@ import { OpenOrders, TokenInstructions } from '@project-serum/serum';
 import { I80F48, ONE_I80F48 } from './fixednum';
 import MangoGroup from './MangoGroup';
 import { HealthType } from './MangoAccount';
+import { SEND_CONNECTION, SEND_CONNECTION2 } from '.';
 
 export const ZERO_BN = new BN(0);
 export const zeroKey = new PublicKey(new Uint8Array(32));
@@ -93,6 +94,7 @@ export function splitOpenOrders(openOrders: OpenOrders): {
   );
   return { quoteFree, quoteLocked, baseFree, baseLocked };
 }
+
 export async function awaitTransactionSignatureConfirmation(
   txid: TransactionSignature,
   timeout: number,
@@ -140,13 +142,15 @@ export async function awaitTransactionSignatureConfirmation(
         done = true;
         console.log('WS error in setup', txid, e);
       }
+      const connections = [connection, SEND_CONNECTION, SEND_CONNECTION2];
+      let connectionIndex = 0;
       while (!done) {
         // eslint-disable-next-line no-loop-func
         (async () => {
           try {
-            const signatureStatuses = await connection.getSignatureStatuses([
-              txid,
-            ]);
+            const conn = connections[connectionIndex];
+            const signatureStatuses = await conn.getSignatureStatuses([txid]);
+            connectionIndex = Math.floor(Math.random() * connections.length);
             const result = signatureStatuses && signatureStatuses.value[0];
             if (!done) {
               if (!result) {
