@@ -164,6 +164,7 @@ export default class MangoAccount {
       );
       slot = response.context?.slot;
       value = response.value;
+      console.log('lastSeenSlot, returnedSlot: ', lastSlot, slot);
     }
 
     Object.assign(this, MangoAccountLayout.decode(value?.data));
