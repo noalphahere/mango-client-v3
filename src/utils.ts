@@ -332,7 +332,7 @@ export function clamp(x: number, min: number, max: number): number {
     return x;
   }
 }
-
+const GET_MULTIPLE_ACCOUNTS_MAX = 100000;
 export async function getMultipleAccounts(
   connection: Connection,
   publicKeys: PublicKey[],
@@ -348,7 +348,7 @@ export async function getMultipleAccounts(
   if (len === 0) {
     return [];
   }
-  if (len > 100) {
+  if (len > GET_MULTIPLE_ACCOUNTS_MAX) {
     const mid = Math.floor(publicKeys.length / 2);
     return Promise.all([
       getMultipleAccounts(connection, publicKeys.slice(0, mid), commitment),
