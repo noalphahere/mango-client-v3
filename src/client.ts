@@ -2131,6 +2131,7 @@ export class MangoClient {
       accountFilters.push(...filters);
     }
 
+    const t0 = getUnixTs();
     const mangoAccounts = await getFilteredProgramAccounts(
       this.connection,
       this.programId,
@@ -2145,16 +2146,19 @@ export class MangoClient {
         );
       }),
     );
+    console.log('getProgramAccounts', getUnixTs() - t0);
 
     if (includeOpenOrders) {
       const openOrderPks = mangoAccounts
         .map((ma) => ma.spotOpenOrders.filter((pk) => !pk.equals(zeroKey)))
         .flat();
 
+      const startTs = getUnixTs();
       const openOrderAccountInfos = await getMultipleAccounts(
         this.connection,
         openOrderPks,
       );
+      console.log('getMultipleAccounts', getUnixTs() - startTs);
 
       const openOrders = openOrderAccountInfos.map(
         ({ publicKey, accountInfo }) =>
