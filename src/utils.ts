@@ -332,7 +332,7 @@ export function clamp(x: number, min: number, max: number): number {
     return x;
   }
 }
-const GET_MULTIPLE_ACCOUNTS_MAX = 10000;
+const GET_MULTIPLE_ACCOUNTS_MAX = 100;
 export async function getMultipleAccounts(
   connection: Connection,
   publicKeys: PublicKey[],
