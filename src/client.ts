@@ -393,6 +393,7 @@ export class MangoClient {
           console.log('Timed out for txid', txid);
           reject({ timeout: true });
         }, timeout);
+
         try {
           socketId = this.connection.onSignature(
             txid,
@@ -401,6 +402,8 @@ export class MangoClient {
               if (result.err) {
                 reject(result.err);
               } else {
+                console.log('onSignature tx confirmation');
+
                 this.lastSlot = context?.slot;
                 resolve(result);
               }
@@ -411,6 +414,7 @@ export class MangoClient {
           done = true;
           console.log('WS error in setup', txid, e);
         }
+
         while (!done) {
           // eslint-disable-next-line no-loop-func
           (async () => {
@@ -454,7 +458,8 @@ export class MangoClient {
     });
 
     if (socketId) {
-      this.connection.removeAccountChangeListener(socketId);
+      console.log('signature listener id', socketId);
+      this.connection.removeSignatureListener(socketId);
     }
 
     done = true;
