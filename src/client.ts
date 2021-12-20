@@ -250,7 +250,7 @@ export class MangoClient {
 
     let done = false;
 
-    let retrySleep = 1500;
+    let retrySleep = 15000;
     (async () => {
       // TODO - make sure this works well on mainnet
       while (!done && getUnixTs() - startTime < timeout / 1000) {
@@ -1907,14 +1907,6 @@ export class MangoClient {
   }
 
   /**
-   * Settle Pnl on all PerpAccounts; More efficient than calling SettlePnl one by one
-   */
-  async settlePnlAll() {}
-  /**
-   * Settle Pnl on all PerpAccounts that have a profitable pnl
-   */
-  async settlePnlPositive() {}
-  /**
    * Assumes spotMarkets contains all Markets in MangoGroup in order
    */
   async settleAll(
@@ -2015,8 +2007,8 @@ export class MangoClient {
   }
 
   /**
-   * Automatically fetch MangoAccounts for this PerpMarket
    * Pick enough MangoAccounts that have opposite sign and send them in to get settled
+   * Fetch all MangoAccount if not provided by caller
    */
   async settlePnl(
     mangoGroup: MangoGroup,
