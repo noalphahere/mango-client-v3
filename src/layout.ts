@@ -829,9 +829,7 @@ export const MangoAccountLayout = struct([
   seq(sideLayout(1), MAX_PERP_OPEN_ORDERS, 'orderSide'),
   seq(i128(), MAX_PERP_OPEN_ORDERS, 'orders'),
   seq(u64(), MAX_PERP_OPEN_ORDERS, 'clientOrderIds'),
-
   u64('msrmAmount'),
-
   bool('beingLiquidated'),
   bool('isBankrupt'),
   seq(u8(), INFO_LEN, 'info'),
