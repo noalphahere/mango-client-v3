@@ -250,7 +250,7 @@ export class MangoClient {
 
     let done = false;
 
-    let retrySleep = 15000;
+    let retrySleep = 1500;
     (async () => {
       // TODO - make sure this works well on mainnet
       while (!done && getUnixTs() - startTime < timeout / 1000) {
@@ -1907,6 +1907,14 @@ export class MangoClient {
   }
 
   /**
+   * Settle Pnl on all PerpAccounts; More efficient than calling SettlePnl one by one
+   */
+  async settlePnlAll() {}
+  /**
+   * Settle Pnl on all PerpAccounts that have a profitable pnl
+   */
+  async settlePnlPositive() {}
+  /**
    * Assumes spotMarkets contains all Markets in MangoGroup in order
    */
   async settleAll(
@@ -2018,6 +2026,7 @@ export class MangoClient {
     quoteRootBank: RootBank,
     price: I80F48, // should be the MangoCache price
     owner: Account | WalletAdapter,
+    mangoAccounts?: MangoAccount[] | undefined,
   ): Promise<TransactionSignature | null> {
     // fetch all MangoAccounts filtered for having this perp market in basket
     const marketIndex = mangoGroup.getPerpMarketIndex(perpMarket.publicKey);
@@ -2068,7 +2077,9 @@ export class MangoClient {
       }
     }
 
-    const mangoAccounts = await this.getAllMangoAccounts(mangoGroup, [], false);
+    if (mangoAccounts === undefined) {
+      mangoAccounts = await this.getAllMangoAccounts(mangoGroup, [], false);
+    }
 
     const accountsWithPnl = mangoAccounts
       .map((m) => ({
