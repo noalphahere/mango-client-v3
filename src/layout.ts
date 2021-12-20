@@ -824,7 +824,6 @@ export const MangoAccountLayout = struct([
   seq(I80F48Layout(), MAX_TOKENS, 'borrows'),
   seq(publicKeyLayout(), MAX_PAIRS, 'spotOpenOrders'),
   seq(perpAccountLayout(), MAX_PAIRS, 'perpAccounts'),
-
   seq(u8(), MAX_PERP_OPEN_ORDERS, 'orderMarket'),
   seq(sideLayout(1), MAX_PERP_OPEN_ORDERS, 'orderSide'),
   seq(i128(), MAX_PERP_OPEN_ORDERS, 'orders'),
