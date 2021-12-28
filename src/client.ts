@@ -292,7 +292,7 @@ export class MangoClient {
               // throw new Error(
               //   'Transaction failed: ' + line.slice('Program log: '.length),
               // );
-              console.log("Error in omitted throw error in client.ts in mango client")
+              console.log("Error in omitted throw error in client.ts in mango client");
             }
           }
         }
