@@ -272,33 +272,33 @@ export class MangoClient {
         confirmLevel,
       );
     } catch (err: any) {
-      if (err.timeout) {
-        throw new TimeoutError({ txid });
-      }
-      let simulateResult: SimulatedTransactionResponse | null = null;
-      try {
-        simulateResult = (
-          await simulateTransaction(this.connection, transaction, 'processed')
-        ).value;
-      } catch (e) {
-        console.warn('Simulate transaction failed');
-      }
-
-      if (simulateResult && simulateResult.err) {
-        if (simulateResult.logs) {
-          for (let i = simulateResult.logs.length - 1; i >= 0; --i) {
-            const line = simulateResult.logs[i];
-            if (line.startsWith('Program log: ')) {
-              // throw new Error(
-              //   'Transaction failed: ' + line.slice('Program log: '.length),
-              // );
-              console.log("Error in omitted throw error in client.ts in mango client");
-            }
-          }
-        }
-        throw new Error(JSON.stringify(simulateResult.err));
-      }
-      throw new Error('Transaction failed');
+      // if (err.timeout) {
+      //   throw new TimeoutError({ txid });
+      // }
+      // let simulateResult: SimulatedTransactionResponse | null = null;
+      // try {
+      //   simulateResult = (
+      //     await simulateTransaction(this.connection, transaction, 'processed')
+      //   ).value;
+      // } catch (e) {
+      //   console.warn('Simulate transaction failed');
+      // }
+      //
+      // if (simulateResult && simulateResult.err) {
+      //   if (simulateResult.logs) {
+      //     for (let i = simulateResult.logs.length - 1; i >= 0; --i) {
+      //       const line = simulateResult.logs[i];
+      //       if (line.startsWith('Program log: ')) {
+      //         // throw new Error(
+      //         //   'Transaction failed: ' + line.slice('Program log: '.length),
+      //         // );
+      //         console.log("Error in omitted throw error in client.ts in mango client");
+      //       }
+      //     }
+      //   }
+      //   throw new Error(JSON.stringify(simulateResult.err));
+      // }
+      // throw new Error('Transaction failed');
     } finally {
       done = true;
     }
