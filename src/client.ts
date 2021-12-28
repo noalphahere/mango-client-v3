@@ -288,11 +288,12 @@ export class MangoClient {
         if (simulateResult.logs) {
           for (let i = simulateResult.logs.length - 1; i >= 0; --i) {
             const line = simulateResult.logs[i];
-            // if (line.startsWith('Program log: ')) {
-            //   throw new Error(
-            //     'Transaction failed: ' + line.slice('Program log: '.length),
-            //   );
-            // }
+            if (line.startsWith('Program log: ')) {
+              // throw new Error(
+              //   'Transaction failed: ' + line.slice('Program log: '.length),
+              // );
+              console.log("Error in omitted throw error in client.ts in mango client")
+            }
           }
         }
         throw new Error(JSON.stringify(simulateResult.err));
