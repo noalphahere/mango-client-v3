@@ -15,7 +15,7 @@ import {
   Union,
 } from 'buffer-layout';
 import { PublicKey } from '@solana/web3.js';
-import { I80F48 } from './fixednum';
+import { I80F48, ONE_I80F48 } from './fixednum';
 import BN from 'bn.js';
 import { zeroKey } from './utils';
 import PerpAccount from './PerpAccount';
@@ -126,12 +126,14 @@ export function bool(property?: string) {
 }
 
 function decodeBool(value: number): boolean {
-  if (value === 0) {
-    return false;
-  } else if (value === 1) {
-    return true;
-  }
-  throw new Error('Invalid bool: ' + value);
+  // TODO - use commented lines after deprecating devnet.2
+  return value !== 0;
+  // if (value === 0) {
+  //   return false;
+  // } else if (value === 1) {
+  //   return true;
+  // }
+  // throw new Error('Invalid bool: ' + value);
 }
 
 function encodeBool(value: boolean): number {
@@ -532,6 +534,51 @@ MangoInstructionLayout.addVariant(
   'ChangeMaxMangoAccounts',
 );
 
+MangoInstructionLayout.addVariant(50, struct([]), 'CloseMangoAccount');
+MangoInstructionLayout.addVariant(51, struct([]), 'CloseSpotOpenOrders');
+MangoInstructionLayout.addVariant(52, struct([]), 'CloseAdvancedOrders');
+MangoInstructionLayout.addVariant(53, struct([]), 'CreateDustAccount');
+MangoInstructionLayout.addVariant(54, struct([]), 'ResolveDust');
+
+MangoInstructionLayout.addVariant(
+  55,
+  struct([u64('accountNum')]),
+  'CreateMangoAccount',
+);
+
+MangoInstructionLayout.addVariant(56, struct([]), 'UpgradeMangoAccountV0V1');
+
+MangoInstructionLayout.addVariant(
+  57,
+  struct([sideLayout(1, 'side'), u8('limit')]),
+  'CancelPerpOrdersSide',
+);
+
+MangoInstructionLayout.addVariant(58, struct([]), 'SetDelegate');
+
+MangoInstructionLayout.addVariant(
+  59,
+  struct([
+    bool('maintLeverageOption'),
+    I80F48Layout('maintLeverage'),
+    bool('initLeverageOption'),
+    I80F48Layout('initLeverage'),
+    bool('liquidationFeeOption'),
+    I80F48Layout('liquidationFee'),
+    bool('optimalUtilOption'),
+    I80F48Layout('optimalUtil'),
+    bool('optimalRateOption'),
+    I80F48Layout('optimalRate'),
+    bool('maxRateOption'),
+    I80F48Layout('maxRate'),
+    bool('versionOption'),
+    u8('version'),
+  ]),
+  'ChangeSpotMarketParams',
+);
+
+MangoInstructionLayout.addVariant(60, struct([]), 'CreateSpotOpenOrders');
+
 const instructionMaxSpan = Math.max(
   // @ts-ignore
   ...Object.values(MangoInstructionLayout.registry).map((r) => r.span),
@@ -811,7 +858,11 @@ export const MangoGroupLayout = struct([
   publicKeyLayout('srmVault'),
   publicKeyLayout('msrmVault'),
   publicKeyLayout('feesVault'),
-  seq(u8(), 32, 'padding'),
+
+  u32('maxMangoAccounts'),
+  u32('numMangoAccounts'),
+
+  seq(u8(), 24, 'padding'),
 ]);
 /** @internal */
 export const MangoAccountLayout = struct([
@@ -836,7 +887,10 @@ export const MangoAccountLayout = struct([
   bool('isBankrupt'),
   seq(u8(), INFO_LEN, 'info'),
   publicKeyLayout('advancedOrdersKey'),
-  seq(u8(), 38, 'padding'),
+  bool('notUpgradable'),
+  publicKeyLayout('delegate'),
+
+  seq(u8(), 5, 'padding'),
 ]);
 /** @internal */
 export const RootBankLayout = struct([
@@ -1190,6 +1244,11 @@ export class MangoCache {
   constructor(publicKey: PublicKey, decoded: any) {
     this.publicKey = publicKey;
     Object.assign(this, decoded);
+  }
+  getPrice(tokenIndex: number): I80F48 {
+    return tokenIndex === QUOTE_INDEX
+      ? ONE_I80F48
+      : this.priceCache[tokenIndex].price;
   }
 }
 

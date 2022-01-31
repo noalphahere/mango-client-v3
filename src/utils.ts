@@ -31,6 +31,14 @@ export const zeroKey = new PublicKey(new Uint8Array(32));
 export async function promiseUndef(): Promise<undefined> {
   return undefined;
 }
+/** @internal */
+export async function promiseNull(): Promise<null> {
+  return null;
+}
+
+export function optionalBNFromString(x?: string): BN | undefined {
+  return x ? new BN(x) : undefined;
+}
 
 export function uiToNative(amount: number, decimals: number): BN {
   return new BN(Math.round(amount * Math.pow(10, decimals)));
@@ -51,6 +59,17 @@ export class TimeoutError extends Error {
   constructor({ txid }) {
     super();
     this.message = `Timed out awaiting confirmation. Please confirm in the explorer: `;
+    this.txid = txid;
+  }
+}
+
+export class MangoError extends Error {
+  message: string;
+  txid: string;
+
+  constructor({ txid, message }) {
+    super();
+    this.message = message;
     this.txid = txid;
   }
 }
@@ -320,6 +339,15 @@ export async function getFilteredProgramAccounts(
   if (resp.error) {
     throw new Error(resp.error.message);
   }
+  if (resp.result) {
+    const nullResults = resp.result.filter((r) => r?.account === null);
+    if (nullResults.length > 0)
+      throw new Error(
+        `gpa returned ${
+          nullResults.length
+        } null results. ex: ${nullResults[0]?.pubkey.toString()}`,
+      );
+  }
   return resp.result.map(
     ({ pubkey, account: { data, executable, owner, lamports } }) => ({
       publicKey: new PublicKey(pubkey),
@@ -375,6 +403,15 @@ export async function getMultipleAccounts(
   const resp = await connection._rpcRequest('getMultipleAccounts', args);
   if (resp.error) {
     throw new Error(resp.error.message);
+  }
+  if (resp.result) {
+    const nullResults = resp.result.value.filter((r) => r?.account === null);
+    if (nullResults.length > 0)
+      throw new Error(
+        `gma returned ${
+          nullResults.length
+        } null results. ex: ${nullResults[0]?.pubkey.toString()}`,
+      );
   }
   return resp.result.value.map(
     ({ data, executable, lamports, owner }, i: number) => ({

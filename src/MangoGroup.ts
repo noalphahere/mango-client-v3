@@ -40,6 +40,9 @@ export default class MangoGroup {
 
   rootBankAccounts: (RootBank | undefined)[];
 
+  maxMangoAccounts!: BN;
+  numMangoAccounts!: BN;
+
   constructor(publicKey: PublicKey, decoded: any) {
     this.publicKey = publicKey;
     Object.assign(this, decoded);
@@ -184,6 +187,20 @@ export default class MangoGroup {
 
     const decoded = MangoCacheLayout.decode(account.data);
     return new MangoCache(this.mangoCache, decoded);
+  }
+
+  onCacheChange(connection: Connection, cb: (c: MangoCache) => void): number {
+    const sub = connection.onAccountChange(
+      this.mangoCache,
+      (ai, _) => {
+        const decoded = MangoCacheLayout.decode(ai.data);
+        const parsed = new MangoCache(this.mangoCache, decoded);
+        cb(parsed);
+      },
+      connection.commitment,
+    );
+
+    return sub;
   }
 
   async loadRootBanks(

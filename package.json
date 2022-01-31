@@ -1,6 +1,6 @@
 {
   "name": "@blockworks-foundation/mango-client",
-  "version": "3.2.17",
+  "version": "3.3.11",
   "description": "Client to interact with the Mango program on Solana",
   "main": "lib/src/index.js",
   "types": "lib/src/index.d.ts",
@@ -30,11 +30,15 @@
     "crank": "ts-node src/crank.ts",
     "scratch": "ts-node src/scratch.ts",
     "mm": "ts-node src/mm.ts",
+    "dust": "ts-node src/dust.ts",
+    "example-mango-logs": "ts-node examples/mangoLogs.ts",
     "test-compute": "ts-node test/compute.test.ts",
     "test-fillbook": "ts-node test/fillbook.test.ts",
     "test-liquidator": "ts-node test/liquidator.test.ts",
     "test-accounts": "ts-node test/accounts.test.ts",
     "test-stoploss": "ts-node test/stoploss.test.ts",
+    "test-closeaccount": "ts-node test/closeaccount.test.ts",
+    "test-cancelside": "ts-node test/cancelside.test.ts",
     "mint-devnet": "ts-node src/mintDevnet.ts",
     "test": "mocha -r ts-node/register test/**/*.test.ts --timeout 0",
     "test:build": "yarn build && yarn",
@@ -56,7 +60,7 @@
     "cross-env": "^7.0.2",
     "eslint": "^7.28.0",
     "eslint-config-prettier": "^7.2.0",
-    "mocha": "^8.4.0",
+    "mocha": "9",
     "prettier": "^2.0.5",
     "ts-node": "^9.1.1",
     "typedoc": "^0.22.5",
@@ -74,10 +78,11 @@
     "@project-serum/serum": "0.13.55",
     "@project-serum/sol-wallet-adapter": "^0.2.0",
     "@solana/spl-token": "^0.1.6",
-    "@solana/web3.js": "1.21.0",
+    "@solana/web3.js": "^1.31.0",
     "big.js": "^6.1.1",
     "bn.js": "^5.2.0",
     "buffer-layout": "^1.2.1",
+    "cross-fetch": "^3.1.5",
     "dotenv": "^10.0.0",
     "yargs": "^17.0.1"
   },
@@ -90,6 +95,6 @@
   "resolutions": {
     "bn.js": "5.1.3",
     "@types/bn.js": "5.1.0",
-    "@solana/web3.js": "^1.21.0"
+    "@solana/web3.js": "^1.31.0"
   }
 }
