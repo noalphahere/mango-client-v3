@@ -322,37 +322,37 @@ export class MangoClient {
         confirmLevel,
       );
     } catch (err: any) {
-      if (err.timeout) {
-        throw new TimeoutError({ txid });
-      }
-      let simulateResult: SimulatedTransactionResponse | null = null;
-      try {
-        simulateResult = (
-          await simulateTransaction(this.connection, transaction, 'processed')
-        ).value;
-      } catch (e) {
-        console.warn('Simulate transaction failed');
-      }
+//       if (err.timeout) {
+//         throw new TimeoutError({ txid });
+//       }
+//       let simulateResult: SimulatedTransactionResponse | null = null;
+//       try {
+//         simulateResult = (
+//           await simulateTransaction(this.connection, transaction, 'processed')
+//         ).value;
+//       } catch (e) {
+//         console.warn('Simulate transaction failed');
+//       }
 
-      if (simulateResult && simulateResult.err) {
-        if (simulateResult.logs) {
-          for (let i = simulateResult.logs.length - 1; i >= 0; --i) {
-            const line = simulateResult.logs[i];
-            if (line.startsWith('Program log: ')) {
-              throw new MangoError({
-                message:
-                  'Transaction failed: ' + line.slice('Program log: '.length),
-                txid,
-              });
-            }
-          }
-        }
-        throw new MangoError({
-          message: JSON.stringify(simulateResult.err),
-          txid,
-        });
-      }
-      throw new MangoError({ message: 'Transaction failed', txid });
+//       if (simulateResult && simulateResult.err) {
+//         if (simulateResult.logs) {
+//           for (let i = simulateResult.logs.length - 1; i >= 0; --i) {
+//             const line = simulateResult.logs[i];
+//             if (line.startsWith('Program log: ')) {
+//               throw new MangoError({
+//                 message:
+//                   'Transaction failed: ' + line.slice('Program log: '.length),
+//                 txid,
+//               });
+//             }
+//           }
+//         }
+//         throw new MangoError({
+//           message: JSON.stringify(simulateResult.err),
+//           txid,
+//         });
+//       }
+//       throw new MangoError({ message: 'Transaction failed', txid });
     } finally {
       done = true;
     }
@@ -407,40 +407,40 @@ export class MangoClient {
         confirmLevel,
       );
     } catch (err: any) {
-      if (err.timeout) {
-        throw new TimeoutError({ txid });
-      }
-      let simulateResult: SimulatedTransactionResponse | null = null;
-      try {
-        simulateResult = (
-          await simulateTransaction(
-            this.connection,
-            signedTransaction,
-            'single',
-          )
-        ).value;
-      } catch (e) {
-        console.log('Simulate tx failed');
-      }
-      if (simulateResult && simulateResult.err) {
-        if (simulateResult.logs) {
-          for (let i = simulateResult.logs.length - 1; i >= 0; --i) {
-            const line = simulateResult.logs[i];
-            if (line.startsWith('Program log: ')) {
-              throw new MangoError({
-                message:
-                  'Transaction failed: ' + line.slice('Program log: '.length),
-                txid,
-              });
-            }
-          }
-        }
-        throw new MangoError({
-          message: JSON.stringify(simulateResult.err),
-          txid,
-        });
-      }
-      throw new MangoError({ message: 'Transaction failed', txid });
+//       if (err.timeout) {
+//         throw new TimeoutError({ txid });
+//       }
+//       let simulateResult: SimulatedTransactionResponse | null = null;
+//       try {
+//         simulateResult = (
+//           await simulateTransaction(
+//             this.connection,
+//             signedTransaction,
+//             'single',
+//           )
+//         ).value;
+//       } catch (e) {
+//         console.log('Simulate tx failed');
+//       }
+//       if (simulateResult && simulateResult.err) {
+//         if (simulateResult.logs) {
+//           for (let i = simulateResult.logs.length - 1; i >= 0; --i) {
+//             const line = simulateResult.logs[i];
+//             if (line.startsWith('Program log: ')) {
+//               throw new MangoError({
+//                 message:
+//                   'Transaction failed: ' + line.slice('Program log: '.length),
+//                 txid,
+//               });
+//             }
+//           }
+//         }
+//         throw new MangoError({
+//           message: JSON.stringify(simulateResult.err),
+//           txid,
+//         });
+//       }
+//       throw new MangoError({ message: 'Transaction failed', txid });
     } finally {
       done = true;
     }
