@@ -12,6 +12,7 @@ import {
   TransactionSignature,
 } from '@solana/web3.js';
 import BN from 'bn.js';
+import fetch from 'cross-fetch';
 import {
   createAccountInstruction,
   createSignerKeyAndNonce,
@@ -19,15 +20,18 @@ import {
   getFilteredProgramAccounts,
   getMultipleAccounts,
   nativeToUi,
+  promiseNull,
+  promiseUndef,
   simulateTransaction,
   sleep,
   uiToNative,
-  zeroKey,
   ZERO_BN,
+  zeroKey,
 } from './utils';
 import {
   AssetType,
   BookSideLayout,
+  FREE_ORDER_SLOT,
   MangoAccountLayout,
   MangoCache,
   MangoCacheLayout,
@@ -52,14 +56,26 @@ import {
   makeCachePerpMarketsInstruction,
   makeCachePricesInstruction,
   makeCacheRootBankInstruction,
+  makeCancelAllPerpOrdersInstruction,
   makeCancelPerpOrderInstruction,
+  makeCancelPerpOrdersSideInstruction,
   makeCancelSpotOrderInstruction,
+  makeChangePerpMarketParams2Instruction,
   makeChangePerpMarketParamsInstruction,
+  makeChangeSpotMarketParamsInstruction,
+  makeCloseAdvancedOrdersInstruction,
+  makeCloseMangoAccountInstruction,
+  makeCloseSpotOpenOrdersInstruction,
   makeConsumeEventsInstruction,
+  makeCreateDustAccountInstruction,
+  makeCreateMangoAccountInstruction,
+  makeCreatePerpMarketInstruction,
   makeDepositInstruction,
   makeDepositMsrmInstruction,
+  makeExecutePerpTriggerOrderInstruction,
   makeForceCancelPerpOrdersInstruction,
   makeForceCancelSpotOrdersInstruction,
+  makeInitAdvancedOrdersInstruction,
   makeInitMangoAccountInstruction,
   makeInitMangoGroupInstruction,
   makeInitSpotOpenOrdersInstruction,
@@ -67,26 +83,25 @@ import {
   makeLiquidateTokenAndPerpInstruction,
   makeLiquidateTokenAndTokenInstruction,
   makePlacePerpOrderInstruction,
+  makePlaceSpotOrder2Instruction,
   makePlaceSpotOrderInstruction,
   makeRedeemMngoInstruction,
+  makeRemoveAdvancedOrderInstruction,
+  makeResolveDustInstruction,
   makeResolvePerpBankruptcyInstruction,
   makeResolveTokenBankruptcyInstruction,
+  makeSetDelegateInstruction,
   makeSetGroupAdminInstruction,
   makeSetOracleInstruction,
   makeSettleFeesInstruction,
   makeSettleFundsInstruction,
   makeSettlePnlInstruction,
   makeUpdateFundingInstruction,
+  makeUpdateMarginBasketInstruction,
   makeUpdateRootBankInstruction,
+  makeUpgradeMangoAccountV0V1Instruction,
   makeWithdrawInstruction,
   makeWithdrawMsrmInstruction,
-  makeExecutePerpTriggerOrderInstruction,
-  makeInitAdvancedOrdersInstruction,
-  makePlaceSpotOrder2Instruction,
-  makeRemoveAdvancedOrderInstruction,
-  makeCreatePerpMarketInstruction,
-  makeChangePerpMarketParams2Instruction,
-  makeUpdateMarginBasketInstruction,
 } from './instruction';
 import {
   getFeeRates,
@@ -94,7 +109,7 @@ import {
   Market,
   OpenOrders,
 } from '@project-serum/serum';
-import { I80F48, ZERO_I80F48 } from './fixednum';
+import { I80F48, ONE_I80F48, ZERO_I80F48 } from './fixednum';
 import { Order } from '@project-serum/serum/lib/market';
 
 import { PerpOrderType, WalletAdapter } from './types';
@@ -110,24 +125,52 @@ import {
   TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 import MangoGroup from './MangoGroup';
-import { TimeoutError } from '.';
+import {
+  makeCreateSpotOpenOrdersInstruction,
+  MangoError,
+  TimeoutError,
+} from '.';
 
+/**
+ * Get the current epoch timestamp in seconds with microsecond precision
+ */
 export const getUnixTs = () => {
   return new Date().getTime() / 1000;
 };
 
+type AccountWithPnl = {
+  publicKey: PublicKey;
+  pnl: I80F48;
+};
+
 /**
- * A class for interacting with a particular Mango V3 Program
+ * A class for interacting with the Mango V3 Program
+ *
+ * @param connection A solana web.js Connection object
+ * @param programId The PublicKey of the Mango V3 Program
+ * @param opts An object used to configure the MangoClient. Accepts a postSendTxCallback
  */
 export class MangoClient {
   connection: Connection;
   programId: PublicKey;
   lastSlot: number;
+  recentBlockhash: string;
+  recentBlockhashTime: number;
+  postSendTxCallback?: ({ txid: string }) => void;
 
-  constructor(connection: Connection, programId: PublicKey) {
+  constructor(
+    connection: Connection,
+    programId: PublicKey,
+    opts: { postSendTxCallback?: ({ txid }: { txid: string }) => void } = {},
+  ) {
     this.connection = connection;
     this.programId = programId;
     this.lastSlot = 0;
+    this.recentBlockhash = '';
+    this.recentBlockhashTime = 0;
+    if (opts.postSendTxCallback) {
+      this.postSendTxCallback = opts.postSendTxCallback;
+    }
   }
 
   async sendTransactions(
@@ -151,9 +194,15 @@ export class MangoClient {
   }
 
   async signTransaction({ transaction, payer, signers }) {
-    transaction.recentBlockhash = (
-      await this.connection.getRecentBlockhash()
-    ).blockhash;
+    const now = getUnixTs();
+    // If last requested recentBlockhash is within a second, use that instead of fetching
+    if (now > this.recentBlockhashTime + 1) {
+      this.recentBlockhash = (
+        await this.connection.getRecentBlockhash()
+      ).blockhash;
+      this.recentBlockhashTime = now;
+    }
+    transaction.recentBlockhash = this.recentBlockhash;
     transaction.setSigners(payer.publicKey, ...signers.map((s) => s.publicKey));
     if (signers.length > 0) {
       transaction.partialSign(...signers);
@@ -198,6 +247,7 @@ export class MangoClient {
         // @ts-ignore
         transaction.sign(...[payer].concat(signers));
       });
+      return transactionsAndSigners.map((t) => t.transaction);
     }
   }
 
@@ -209,7 +259,6 @@ export class MangoClient {
    * @param payer
    * @param additionalSigners
    * @param timeout Retries sending the transaction and trying to confirm it until the given timeout. Defaults to 30000ms. Passing null will disable the transaction confirmation check and always return success.
-   * @param postSignTxCallback Callback to be called after the transaction is signed but before it's sent.
    */
   async sendTransaction(
     transaction: Transaction,
@@ -217,7 +266,6 @@ export class MangoClient {
     additionalSigners: Account[],
     timeout: number | null = 30000,
     confirmLevel: TransactionConfirmationStatus = 'processed',
-    postSignTxCallback?: any,
   ): Promise<TransactionSignature> {
     await this.signTransaction({
       transaction,
@@ -227,17 +275,19 @@ export class MangoClient {
 
     const rawTransaction = transaction.serialize();
     const startTime = getUnixTs();
-    if (postSignTxCallback) {
-      try {
-        postSignTxCallback();
-      } catch (e) {
-        console.log(`postSignTxCallback error ${e}`);
-      }
-    }
+
     const txid: TransactionSignature = await this.connection.sendRawTransaction(
       rawTransaction,
       { skipPreflight: true },
     );
+
+    if (this.postSendTxCallback) {
+      try {
+        this.postSendTxCallback({ txid });
+      } catch (e) {
+        console.log(`postSendTxCallback error ${e}`);
+      }
+    }
 
     if (!timeout) return txid;
 
@@ -272,33 +322,37 @@ export class MangoClient {
         confirmLevel,
       );
     } catch (err: any) {
-      // if (err.timeout) {
-      //   throw new TimeoutError({ txid });
-      // }
-      // let simulateResult: SimulatedTransactionResponse | null = null;
-      // try {
-      //   simulateResult = (
-      //     await simulateTransaction(this.connection, transaction, 'processed')
-      //   ).value;
-      // } catch (e) {
-      //   console.warn('Simulate transaction failed');
-      // }
-      //
-      // if (simulateResult && simulateResult.err) {
-      //   if (simulateResult.logs) {
-      //     for (let i = simulateResult.logs.length - 1; i >= 0; --i) {
-      //       const line = simulateResult.logs[i];
-      //       if (line.startsWith('Program log: ')) {
-      //         // throw new Error(
-      //         //   'Transaction failed: ' + line.slice('Program log: '.length),
-      //         // );
-      //         console.log("Error in omitted throw error in client.ts in mango client");
-      //       }
-      //     }
-      //   }
-      //   throw new Error(JSON.stringify(simulateResult.err));
-      // }
-      // throw new Error('Transaction failed');
+      if (err.timeout) {
+        throw new TimeoutError({ txid });
+      }
+      let simulateResult: SimulatedTransactionResponse | null = null;
+      try {
+        simulateResult = (
+          await simulateTransaction(this.connection, transaction, 'processed')
+        ).value;
+      } catch (e) {
+        console.warn('Simulate transaction failed');
+      }
+
+      if (simulateResult && simulateResult.err) {
+        if (simulateResult.logs) {
+          for (let i = simulateResult.logs.length - 1; i >= 0; --i) {
+            const line = simulateResult.logs[i];
+            if (line.startsWith('Program log: ')) {
+              throw new MangoError({
+                message:
+                  'Transaction failed: ' + line.slice('Program log: '.length),
+                txid,
+              });
+            }
+          }
+        }
+        throw new MangoError({
+          message: JSON.stringify(simulateResult.err),
+          txid,
+        });
+      }
+      throw new MangoError({ message: 'Transaction failed', txid });
     } finally {
       done = true;
     }
@@ -315,7 +369,7 @@ export class MangoClient {
     signedTransaction: Transaction;
     timeout?: number;
     confirmLevel?: TransactionConfirmationStatus;
-  }): Promise<string> {
+  }): Promise<TransactionSignature> {
     const rawTransaction = signedTransaction.serialize();
     const startTime = getUnixTs();
 
@@ -325,6 +379,14 @@ export class MangoClient {
         skipPreflight: true,
       },
     );
+
+    if (this.postSendTxCallback) {
+      try {
+        this.postSendTxCallback({ txid });
+      } catch (e) {
+        console.log(`postSendTxCallback error ${e}`);
+      }
+    }
 
     // console.log('Started awaiting confirmation for', txid);
 
@@ -346,7 +408,7 @@ export class MangoClient {
       );
     } catch (err: any) {
       if (err.timeout) {
-        throw err;
+        throw new TimeoutError({ txid });
       }
       let simulateResult: SimulatedTransactionResponse | null = null;
       try {
@@ -365,15 +427,20 @@ export class MangoClient {
           for (let i = simulateResult.logs.length - 1; i >= 0; --i) {
             const line = simulateResult.logs[i];
             if (line.startsWith('Program log: ')) {
-              throw new Error(
-                'Transaction failed: ' + line.slice('Program log: '.length),
-              );
+              throw new MangoError({
+                message:
+                  'Transaction failed: ' + line.slice('Program log: '.length),
+                txid,
+              });
             }
           }
         }
-        throw new Error(JSON.stringify(simulateResult.err));
+        throw new MangoError({
+          message: JSON.stringify(simulateResult.err),
+          txid,
+        });
       }
-      throw new Error('Transaction failed');
+      throw new MangoError({ message: 'Transaction failed', txid });
     } finally {
       done = true;
     }
@@ -627,7 +694,7 @@ export class MangoClient {
   }
 
   /**
-   * Create a new Mango Account on a given group
+   * DEPRECATED - Create a new Mango Account on a given group
    */
   async initMangoAccount(
     mangoGroup: MangoGroup,
@@ -656,6 +723,75 @@ export class MangoClient {
     await this.sendTransaction(transaction, owner, additionalSigners);
 
     return accountInstruction.account.publicKey;
+  }
+
+  /**
+   * Create a new Mango Account (PDA) on a given group
+   */
+  async createMangoAccount(
+    mangoGroup: MangoGroup,
+    owner: Account | WalletAdapter,
+    accountNum: number,
+  ): Promise<PublicKey> {
+    const accountNumBN = new BN(accountNum);
+    const [mangoAccountPk] = await PublicKey.findProgramAddress(
+      [
+        mangoGroup.publicKey.toBytes(),
+        owner.publicKey.toBytes(),
+        accountNumBN.toBuffer('le', 8),
+      ],
+      this.programId,
+    );
+
+    const createMangoAccountInstruction = makeCreateMangoAccountInstruction(
+      this.programId,
+      mangoGroup.publicKey,
+      mangoAccountPk,
+      owner.publicKey,
+      accountNumBN,
+    );
+
+    // Add all instructions to one atomic transaction
+    const transaction = new Transaction();
+    transaction.add(createMangoAccountInstruction);
+
+    await this.sendTransaction(transaction, owner, []);
+
+    return mangoAccountPk;
+  }
+
+  /**
+   * Upgrade a Mango Account from V0 (not deletable) to V1 (deletable)
+   */
+  async upgradeMangoAccountV0V1(
+    mangoGroup: MangoGroup,
+    owner: Account | WalletAdapter,
+    accountNum: number,
+  ): Promise<PublicKey> {
+    const accountNumBN = new BN(accountNum);
+    const [mangoAccountPk] = await PublicKey.findProgramAddress(
+      [
+        mangoGroup.publicKey.toBytes(),
+        owner.publicKey.toBytes(),
+        accountNumBN.toBuffer(),
+      ],
+      this.programId,
+    );
+
+    const upgradeMangoAccountInstruction =
+      makeUpgradeMangoAccountV0V1Instruction(
+        this.programId,
+        mangoGroup.publicKey,
+        mangoAccountPk,
+        owner.publicKey,
+      );
+
+    const transaction = new Transaction();
+    transaction.add(upgradeMangoAccountInstruction);
+
+    await this.sendTransaction(transaction, owner, []);
+
+    return mangoAccountPk;
   }
 
   /**
@@ -791,6 +927,131 @@ export class MangoClient {
     await this.sendTransaction(transaction, owner, additionalSigners);
 
     return accountInstruction.account.publicKey.toString();
+  }
+
+  /**
+   * Create a new Mango Account (PDA) and deposit some tokens in a single transaction
+   *
+   * @param rootBank The RootBank for the deposit currency
+   * @param nodeBank The NodeBank asociated with the RootBank
+   * @param vault The token account asociated with the NodeBank
+   * @param tokenAcc The token account to transfer from
+   * @param info An optional UI name for the account
+   */
+  async createMangoAccountAndDeposit(
+    mangoGroup: MangoGroup,
+    owner: Account | WalletAdapter,
+    rootBank: PublicKey,
+    nodeBank: PublicKey,
+    vault: PublicKey,
+    tokenAcc: PublicKey,
+
+    quantity: number,
+    accountNum: number,
+    info?: string,
+  ): Promise<[string, TransactionSignature]> {
+    const transaction = new Transaction();
+
+    const accountNumBN = new BN(accountNum);
+    const [mangoAccountPk] = await PublicKey.findProgramAddress(
+      [
+        mangoGroup.publicKey.toBytes(),
+        owner.publicKey.toBytes(),
+        accountNumBN.toArrayLike(Buffer, 'le', 8),
+      ],
+      this.programId,
+    );
+
+    const createMangoAccountInstruction = makeCreateMangoAccountInstruction(
+      this.programId,
+      mangoGroup.publicKey,
+      mangoAccountPk,
+      owner.publicKey,
+      accountNumBN,
+    );
+
+    transaction.add(createMangoAccountInstruction);
+
+    const additionalSigners: Account[] = [];
+
+    const tokenIndex = mangoGroup.getRootBankIndex(rootBank);
+    const tokenMint = mangoGroup.tokens[tokenIndex].mint;
+
+    let wrappedSolAccount: Account | null = null;
+    if (
+      tokenMint.equals(WRAPPED_SOL_MINT) &&
+      tokenAcc.toBase58() === owner.publicKey.toBase58()
+    ) {
+      wrappedSolAccount = new Account();
+      const lamports = Math.round(quantity * LAMPORTS_PER_SOL) + 1e7;
+      transaction.add(
+        SystemProgram.createAccount({
+          fromPubkey: owner.publicKey,
+          newAccountPubkey: wrappedSolAccount.publicKey,
+          lamports,
+          space: 165,
+          programId: TOKEN_PROGRAM_ID,
+        }),
+      );
+
+      transaction.add(
+        initializeAccount({
+          account: wrappedSolAccount.publicKey,
+          mint: WRAPPED_SOL_MINT,
+          owner: owner.publicKey,
+        }),
+      );
+
+      additionalSigners.push(wrappedSolAccount);
+    }
+
+    const nativeQuantity = uiToNative(
+      quantity,
+      mangoGroup.tokens[tokenIndex].decimals,
+    );
+
+    const instruction = makeDepositInstruction(
+      this.programId,
+      mangoGroup.publicKey,
+      owner.publicKey,
+      mangoGroup.mangoCache,
+      mangoAccountPk,
+      rootBank,
+      nodeBank,
+      vault,
+      wrappedSolAccount?.publicKey ?? tokenAcc,
+      nativeQuantity,
+    );
+    transaction.add(instruction);
+
+    if (info) {
+      const addAccountNameinstruction = makeAddMangoAccountInfoInstruction(
+        this.programId,
+        mangoGroup.publicKey,
+        mangoAccountPk,
+        owner.publicKey,
+        info,
+      );
+      transaction.add(addAccountNameinstruction);
+    }
+
+    if (wrappedSolAccount) {
+      transaction.add(
+        closeAccount({
+          source: wrappedSolAccount.publicKey,
+          destination: owner.publicKey,
+          owner: owner.publicKey,
+        }),
+      );
+    }
+
+    const txid = await this.sendTransaction(
+      transaction,
+      owner,
+      additionalSigners,
+    );
+
+    return [mangoAccountPk.toString(), txid];
   }
 
   /**
@@ -936,10 +1197,7 @@ export class MangoClient {
       );
       additionalSigners.push(wrappedSolAccount);
     } else {
-      const tokenAccExists = await this.connection.getAccountInfo(
-        tokenAcc,
-        'recent',
-      );
+      const tokenAccExists = await this.connection.getAccountInfo(tokenAcc);
       if (!tokenAccExists) {
         transaction.add(
           Token.createAssociatedTokenAccountInstruction(
@@ -989,6 +1247,133 @@ export class MangoClient {
     return await this.sendTransaction(transaction, owner, additionalSigners);
   }
 
+  async withdrawAll(
+    mangoGroup: MangoGroup,
+    mangoAccount: MangoAccount,
+    owner: Account | WalletAdapter,
+  ) {
+    const transactionsAndSigners: {
+      transaction: Transaction;
+      signers: Account[];
+    }[] = [];
+    for (const rootBank of mangoGroup.rootBankAccounts) {
+      const transactionAndSigners: {
+        transaction: Transaction;
+        signers: Account[];
+      } = {
+        transaction: new Transaction(),
+        signers: [],
+      };
+      if (rootBank) {
+        const tokenIndex = mangoGroup.getRootBankIndex(rootBank?.publicKey);
+        const tokenMint = mangoGroup.tokens[tokenIndex].mint;
+        // const decimals = mangoGroup.tokens[tokenIndex].decimals;
+        if (mangoAccount.deposits[tokenIndex].isPos()) {
+          let tokenAcc = await Token.getAssociatedTokenAddress(
+            ASSOCIATED_TOKEN_PROGRAM_ID,
+            TOKEN_PROGRAM_ID,
+            tokenMint,
+            owner.publicKey,
+          );
+
+          let wrappedSolAccount: Account | null = null;
+          if (tokenMint.equals(WRAPPED_SOL_MINT)) {
+            wrappedSolAccount = new Account();
+            tokenAcc = wrappedSolAccount.publicKey;
+            const space = 165;
+            const lamports =
+              await this.connection.getMinimumBalanceForRentExemption(
+                space,
+                'processed',
+              );
+            transactionAndSigners.transaction.add(
+              SystemProgram.createAccount({
+                fromPubkey: owner.publicKey,
+                newAccountPubkey: tokenAcc,
+                lamports,
+                space,
+                programId: TOKEN_PROGRAM_ID,
+              }),
+            );
+            transactionAndSigners.transaction.add(
+              initializeAccount({
+                account: tokenAcc,
+                mint: WRAPPED_SOL_MINT,
+                owner: owner.publicKey,
+              }),
+            );
+            transactionAndSigners.signers.push(wrappedSolAccount);
+          } else {
+            const tokenAccExists = await this.connection.getAccountInfo(
+              tokenAcc,
+              'recent',
+            );
+            if (!tokenAccExists) {
+              transactionAndSigners.transaction.add(
+                Token.createAssociatedTokenAccountInstruction(
+                  ASSOCIATED_TOKEN_PROGRAM_ID,
+                  TOKEN_PROGRAM_ID,
+                  tokenMint,
+                  tokenAcc,
+                  owner.publicKey,
+                  owner.publicKey,
+                ),
+              );
+            }
+          }
+
+          const instruction = makeWithdrawInstruction(
+            this.programId,
+            mangoGroup.publicKey,
+            mangoAccount.publicKey,
+            owner.publicKey,
+            mangoGroup.mangoCache,
+            rootBank.publicKey,
+            rootBank.nodeBanks[0],
+            rootBank.nodeBankAccounts[0].vault,
+            tokenAcc,
+            mangoGroup.signerKey,
+            mangoAccount.spotOpenOrders,
+            new BN('18446744073709551615'), // u64::MAX to withdraw errything
+            false,
+          );
+          transactionAndSigners.transaction.add(instruction);
+
+          if (wrappedSolAccount) {
+            transactionAndSigners.transaction.add(
+              closeAccount({
+                source: wrappedSolAccount.publicKey,
+                destination: owner.publicKey,
+                owner: owner.publicKey,
+              }),
+            );
+          }
+        }
+      }
+      transactionsAndSigners.push(transactionAndSigners);
+    }
+
+    const signedTransactions = await this.signTransactions({
+      transactionsAndSigners,
+      payer: owner,
+    });
+
+    if (signedTransactions) {
+      for (const signedTransaction of signedTransactions) {
+        if (signedTransaction.instructions.length == 0) {
+          continue;
+        }
+        const txid = await this.sendSignedTransaction({
+          signedTransaction,
+        });
+        console.log(txid);
+      }
+    } else {
+      throw new Error('Unable to sign Settle All transaction');
+    }
+  }
+
+  // Keeper functions
   /**
    * Called by the Keeper to cache interest rates from the RootBanks
    */
@@ -1263,6 +1648,80 @@ export class MangoClient {
     return await this.sendTransaction(transaction, owner, additionalSigners);
   }
 
+  /**
+   * Cancel all perp orders across all markets
+   */
+  async cancelAllPerpOrders(
+    group: MangoGroup,
+    perpMarkets: PerpMarket[],
+    mangoAccount: MangoAccount,
+    owner: Account | WalletAdapter,
+  ): Promise<TransactionSignature[]> {
+    let tx = new Transaction();
+    const transactions: Transaction[] = [];
+
+    // Determine which market indexes have open orders
+    const hasOrders = new Array(group.perpMarkets.length).fill(false);
+    for (let i = 0; i < mangoAccount.orderMarket.length; i++) {
+      if (mangoAccount.orderMarket[i] !== FREE_ORDER_SLOT) {
+        hasOrders[mangoAccount.orderMarket[i]] = true;
+      }
+    }
+
+    for (let i = 0; i < group.perpMarkets.length; i++) {
+      if (!hasOrders[i]) continue;
+
+      const pmi = group.perpMarkets[i];
+      if (pmi.isEmpty()) continue;
+      const perpMarket = perpMarkets.find((pm) =>
+        pm.publicKey.equals(pmi.perpMarket),
+      );
+      if (perpMarket === undefined) continue;
+
+      const cancelAllInstr = makeCancelAllPerpOrdersInstruction(
+        this.programId,
+        group.publicKey,
+        mangoAccount.publicKey,
+        owner.publicKey,
+        perpMarket.publicKey,
+        perpMarket.bids,
+        perpMarket.asks,
+        new BN(20),
+      );
+      tx.add(cancelAllInstr);
+      if (tx.instructions.length === 2) {
+        transactions.push(tx);
+        tx = new Transaction();
+      }
+    }
+    if (tx.instructions.length > 0) {
+      transactions.push(tx);
+    }
+
+    const transactionsAndSigners = transactions.map((tx) => ({
+      transaction: tx,
+      signers: [],
+    }));
+
+    if (transactionsAndSigners.length === 0) {
+      throw new Error('No orders to cancel');
+    }
+
+    // Sign multiple transactions at once for better UX
+    const signedTransactions = await this.signTransactions({
+      transactionsAndSigners,
+      payer: owner,
+    });
+    if (signedTransactions) {
+      return await Promise.all(
+        signedTransactions.map((signedTransaction) =>
+          this.sendSignedTransaction({ signedTransaction }),
+        ),
+      );
+    } else {
+      throw new Error('Unable to sign all CancelAllPerpOrders transactions');
+    }
+  }
   /*
   async loadPerpMarkets(perpMarkets: PublicKey[]): Promise<PerpMarket[]> {
     const accounts = await Promise.all(
@@ -1599,9 +2058,10 @@ export class MangoClient {
     orderType?: 'limit' | 'ioc' | 'postOnly',
     clientOrderId?: BN,
     useMsrmVault?: boolean | undefined,
-  ): Promise<TransactionSignature> {
+  ): Promise<TransactionSignature[]> {
     const limitPrice = spotMarket.priceNumberToLots(price);
     const maxBaseQuantity = spotMarket.baseSizeNumberToLots(size);
+    const allTransactions: Transaction[] = [];
 
     // TODO implement srm vault fee discount
     // const feeTier = getFeeTier(0, nativeToUi(mangoGroup.nativeSrm || 0, SRM_DECIMALS));
@@ -1628,7 +2088,7 @@ export class MangoClient {
     if (!mangoGroup.rootBankAccounts.filter((a) => !!a).length) {
       await mangoGroup.loadRootBanks(this.connection);
     }
-    let feeVault: PublicKey = zeroKey;
+    let feeVault: PublicKey;
     if (useMsrmVault) {
       feeVault = mangoGroup.msrmVault;
     } else if (useMsrmVault === false) {
@@ -1653,12 +2113,12 @@ export class MangoClient {
     }
 
     const transaction = new Transaction();
-    const additionalSigners: Account[] = [];
     const openOrdersKeys: { pubkey: PublicKey; isWritable: boolean }[] = [];
 
     // Only pass in open orders if in margin basket or current market index, and
     // the only writable account should be OpenOrders for current market index
     let marketOpenOrdersKey = zeroKey;
+    const initTx = new Transaction();
     for (let i = 0; i < mangoAccount.spotOpenOrders.length; i++) {
       let pubkey = zeroKey;
       let isWritable = false;
@@ -1667,43 +2127,31 @@ export class MangoClient {
         isWritable = true;
 
         if (mangoAccount.spotOpenOrders[spotMarketIndex].equals(zeroKey)) {
-          // open orders missing for this market; create a new one now
-          const openOrdersSpace = OpenOrders.getLayout(
-            mangoGroup.dexProgramId,
-          ).span;
-
-          const openOrdersLamports =
-            await this.connection.getMinimumBalanceForRentExemption(
-              openOrdersSpace,
-              'processed',
-            );
-
-          const accInstr = await createAccountInstruction(
-            this.connection,
-            owner.publicKey,
-            openOrdersSpace,
-            mangoGroup.dexProgramId,
-            openOrdersLamports,
+          const spotMarketIndexBN = new BN(spotMarketIndex);
+          const [openOrdersPk] = await PublicKey.findProgramAddress(
+            [
+              mangoAccount.publicKey.toBytes(),
+              spotMarketIndexBN.toArrayLike(Buffer, 'le', 8),
+              new Buffer('OpenOrders', 'utf-8'),
+            ],
+            this.programId,
           );
 
-          const initOpenOrders = makeInitSpotOpenOrdersInstruction(
+          const initOpenOrders = makeCreateSpotOpenOrdersInstruction(
             this.programId,
             mangoGroup.publicKey,
             mangoAccount.publicKey,
             owner.publicKey,
             mangoGroup.dexProgramId,
-            accInstr.account.publicKey,
+            openOrdersPk,
             spotMarket.publicKey,
             mangoGroup.signerKey,
           );
 
-          const initTx = new Transaction();
-
-          initTx.add(accInstr.instruction);
           initTx.add(initOpenOrders);
+          allTransactions.push(initTx);
 
-          await this.sendTransaction(initTx, owner, [accInstr.account]);
-          pubkey = accInstr.account.publicKey;
+          pubkey = openOrdersPk;
         } else {
           pubkey = mangoAccount.spotOpenOrders[i];
         }
@@ -1759,26 +2207,48 @@ export class MangoClient {
       clientOrderId ?? new BN(Date.now()),
     );
     transaction.add(placeOrderInstruction);
+    allTransactions.push(transaction);
 
-    const txid = await this.sendTransaction(
-      transaction,
-      owner,
-      additionalSigners,
-    );
+    const signers = [];
+    const transactionsAndSigners = allTransactions.map((tx) => ({
+      transaction: tx,
+      signers,
+    }));
 
-    // update MangoAccount to have new OpenOrders pubkey
-    // We know this new key is in margin basket because if it was a full taker trade
-    // there is some leftover from fee rebate. If maker trade there's the order.
-    // and if it failed then we already exited before this line
-    mangoAccount.spotOpenOrders[spotMarketIndex] = marketOpenOrdersKey;
-    mangoAccount.inMarginBasket[spotMarketIndex] = true;
-    console.log(
-      spotMarketIndex,
-      mangoAccount.spotOpenOrders[spotMarketIndex].toBase58(),
-      marketOpenOrdersKey.toBase58(),
-    );
+    const signedTransactions = await this.signTransactions({
+      transactionsAndSigners,
+      payer: owner,
+    });
 
-    return txid;
+    const txids: TransactionSignature[] = [];
+
+    if (signedTransactions) {
+      for (const signedTransaction of signedTransactions) {
+        if (signedTransaction.instructions.length == 0) {
+          continue;
+        }
+        const txid = await this.sendSignedTransaction({
+          signedTransaction,
+        });
+        txids.push(txid);
+      }
+
+      // update MangoAccount to have new OpenOrders pubkey
+      // We know this new key is in margin basket because if it was a full taker trade
+      // there is some leftover from fee rebate. If maker trade there's the order.
+      // and if it failed then we already exited before this line
+      mangoAccount.spotOpenOrders[spotMarketIndex] = marketOpenOrdersKey;
+      mangoAccount.inMarginBasket[spotMarketIndex] = true;
+      console.log(
+        spotMarketIndex,
+        mangoAccount.spotOpenOrders[spotMarketIndex].toBase58(),
+        marketOpenOrdersKey.toBase58(),
+      );
+    } else {
+      throw new Error('Unable to sign Settle All transaction');
+    }
+
+    return txids;
   }
 
   async cancelSpotOrder(
@@ -1915,7 +2385,7 @@ export class MangoClient {
     mangoAccount: MangoAccount,
     spotMarkets: Market[],
     owner: Account | WalletAdapter,
-  ) {
+  ): Promise<TransactionSignature[]> {
     const transactions: Transaction[] = [];
 
     let j = 0;
@@ -1993,18 +2463,69 @@ export class MangoClient {
       payer: owner,
     });
 
+    const txids: TransactionSignature[] = [];
+
     if (signedTransactions) {
       for (const signedTransaction of signedTransactions) {
         if (signedTransaction.instructions.length == 0) {
           continue;
         }
-        await this.sendSignedTransaction({
+        const txid = await this.sendSignedTransaction({
           signedTransaction,
         });
+        txids.push(txid);
       }
     } else {
       throw new Error('Unable to sign Settle All transaction');
     }
+
+    return txids;
+  }
+
+  async fetchTopPnlAccountsFromRPC(
+    mangoGroup: MangoGroup,
+    mangoCache: MangoCache,
+    perpMarket: PerpMarket,
+    price: I80F48, // should be the MangoCache price
+    sign: number,
+    mangoAccounts?: MangoAccount[],
+  ): Promise<AccountWithPnl[]> {
+    const marketIndex = mangoGroup.getPerpMarketIndex(perpMarket.publicKey);
+    const perpMarketInfo = mangoGroup.perpMarkets[marketIndex];
+
+    if (mangoAccounts === undefined) {
+      mangoAccounts = await this.getAllMangoAccounts(mangoGroup, [], false);
+    }
+
+    return mangoAccounts
+      .map((m) => ({
+        publicKey: m.publicKey,
+        pnl: m.perpAccounts[marketIndex].getPnl(
+          perpMarketInfo,
+          mangoCache.perpMarketCache[marketIndex],
+          price,
+        ),
+      }))
+      .sort((a, b) => sign * a.pnl.cmp(b.pnl));
+  }
+
+  async fetchTopPnlAccountsFromDB(
+    mangoGroup: MangoGroup,
+    perpMarket: PerpMarket,
+    sign: number,
+  ): Promise<AccountWithPnl[]> {
+    const marketIndex = mangoGroup.getPerpMarketIndex(perpMarket.publicKey);
+    const order = sign === 1 ? 'ASC' : 'DESC';
+
+    const response = await fetch(
+      `https://mango-transaction-log.herokuapp.com/v3/stats/ranked-pnl?market-index=${marketIndex}&order=${order}&limit=20`,
+    );
+    const data = await response.json();
+
+    return data.map((m) => ({
+      publicKey: new PublicKey(m.pubkey),
+      pnl: I80F48.fromNumber(m.pnl),
+    }));
   }
 
   /**
@@ -2070,24 +2591,23 @@ export class MangoClient {
       }
     }
 
-    if (mangoAccounts === undefined) {
-      mangoAccounts = await this.getAllMangoAccounts(mangoGroup, [], false);
-    }
-
-    const accountsWithPnl = mangoAccounts
-      .map((m) => ({
-        account: m,
-        pnl: m.perpAccounts[marketIndex].getPnl(
-          perpMarketInfo,
-          mangoCache.perpMarketCache[marketIndex],
-          price,
-        ),
-      }))
-      .sort((a, b) => sign * a.pnl.cmp(b.pnl));
+    // const accountsWithPnl = await this.fetchTopPnlAccountsFromRPC(
+    //   mangoGroup,
+    //   mangoCache,
+    //   perpMarket,
+    //   price,
+    //   sign,
+    //   mangoAccounts,
+    // );
+    const accountsWithPnl = await this.fetchTopPnlAccountsFromDB(
+      mangoGroup,
+      perpMarket,
+      sign,
+    );
 
     for (const account of accountsWithPnl) {
       // ignore own account explicitly
-      if (account.account.publicKey.equals(mangoAccount.publicKey)) {
+      if (account.publicKey.equals(mangoAccount.publicKey)) {
         continue;
       }
       if (
@@ -2100,7 +2620,7 @@ export class MangoClient {
           this.programId,
           mangoGroup.publicKey,
           mangoAccount.publicKey,
-          account.account.publicKey,
+          account.publicKey,
           mangoGroup.mangoCache,
           quoteRootBank.publicKey,
           quoteRootBank.nodeBanks[0],
@@ -2123,6 +2643,90 @@ export class MangoClient {
     return await this.sendTransaction(transaction, owner, additionalSigners);
 
     // Calculate the profit or loss per market
+  }
+
+  /**
+   * Settle all perp accounts with positive pnl
+   */
+  async settlePosPnl(
+    mangoGroup: MangoGroup,
+    mangoCache: MangoCache,
+    mangoAccount: MangoAccount,
+    perpMarkets: PerpMarket[],
+    quoteRootBank: RootBank,
+    owner: Account | WalletAdapter,
+    mangoAccounts?: MangoAccount[],
+  ): Promise<(TransactionSignature | null)[]> {
+    // fetch all MangoAccounts filtered for having this perp market in basket
+    if (mangoAccounts === undefined) {
+      mangoAccounts = await this.getAllMangoAccounts(mangoGroup, [], false);
+    }
+    return await Promise.all(
+      perpMarkets.map((pm) => {
+        const marketIndex = mangoGroup.getPerpMarketIndex(pm.publicKey);
+        const perpMarketInfo = mangoGroup.perpMarkets[marketIndex];
+        const price = mangoCache.getPrice(marketIndex);
+        const pnl = mangoAccount.perpAccounts[marketIndex].getPnl(
+          perpMarketInfo,
+          mangoCache.perpMarketCache[marketIndex],
+          price,
+        );
+        return pnl.isPos()
+          ? this.settlePnl(
+              mangoGroup,
+              mangoCache,
+              mangoAccount,
+              pm,
+              quoteRootBank,
+              mangoCache.getPrice(marketIndex),
+              owner,
+              mangoAccounts,
+            )
+          : promiseNull();
+      }),
+    );
+  }
+
+  /**
+   * Settle all perp accounts with any pnl
+   */
+  async settleAllPerpPnl(
+    mangoGroup: MangoGroup,
+    mangoCache: MangoCache,
+    mangoAccount: MangoAccount,
+    perpMarkets: PerpMarket[],
+    quoteRootBank: RootBank,
+    owner: Account | WalletAdapter,
+    mangoAccounts?: MangoAccount[],
+  ): Promise<(TransactionSignature | null)[]> {
+    // fetch all MangoAccounts filtered for having this perp market in basket
+    if (mangoAccounts === undefined) {
+      mangoAccounts = await this.getAllMangoAccounts(mangoGroup, [], false);
+    }
+    return await Promise.all(
+      perpMarkets.map((pm) => {
+        const marketIndex = mangoGroup.getPerpMarketIndex(pm.publicKey);
+        const perpMarketInfo = mangoGroup.perpMarkets[marketIndex];
+        const price = mangoCache.getPrice(marketIndex);
+        const pnl = mangoAccount.perpAccounts[marketIndex].getPnl(
+          perpMarketInfo,
+          mangoCache.perpMarketCache[marketIndex],
+          price,
+        );
+        return !pnl.isZero()
+          ? this.settlePnl(
+              mangoGroup,
+              mangoCache,
+              mangoAccount,
+              pm,
+              quoteRootBank,
+              mangoCache.getPrice(marketIndex),
+              owner,
+              mangoAccounts,
+            )
+          : promiseNull();
+      }),
+    );
   }
 
   getMangoAccountsForOwner(
@@ -2871,19 +3475,26 @@ export class MangoClient {
     mngoNodeBank: PublicKey,
     mngoVault: PublicKey,
   ): Promise<TransactionSignature> {
-    const transaction = new Transaction();
+    const transactions: Transaction[] = [];
+    let transaction = new Transaction();
+
+    const perpMarkets = await Promise.all(
+      mangoAccount.perpAccounts.map((perpAccount, i) => {
+        if (perpAccount.mngoAccrued.eq(ZERO_BN)) {
+          return promiseUndef();
+        } else {
+          return this.getPerpMarket(
+            mangoGroup.perpMarkets[i].perpMarket,
+            mangoGroup.tokens[i].decimals,
+            mangoGroup.tokens[QUOTE_INDEX].decimals,
+          );
+        }
+      }),
+    );
 
     for (let i = 0; i < mangoAccount.perpAccounts.length; i++) {
-      const perpAccount = mangoAccount.perpAccounts[i];
-      if (perpAccount.mngoAccrued.eq(ZERO_BN)) {
-        continue;
-      }
-      const perpMarketInfo = mangoGroup.perpMarkets[i];
-      const perpMarket = await this.getPerpMarket(
-        perpMarketInfo.perpMarket,
-        mangoGroup.tokens[i].decimals,
-        mangoGroup.tokens[QUOTE_INDEX].decimals,
-      );
+      const perpMarket = perpMarkets[i];
+      if (perpMarket === undefined) continue;
 
       const instruction = makeRedeemMngoInstruction(
         this.programId,
@@ -2899,9 +3510,42 @@ export class MangoClient {
         mangoGroup.signerKey,
       );
       transaction.add(instruction);
+      if (transaction.instructions.length === 9) {
+        transactions.push(transaction);
+        transaction = new Transaction();
+      }
+    }
+    if (transaction.instructions.length > 0) {
+      transactions.push(transaction);
+
+      // txProms.push(this.sendTransaction(transaction, payer, []));
     }
 
-    return await this.sendTransaction(transaction, payer, []);
+    const transactionsAndSigners = transactions.map((tx) => ({
+      transaction: tx,
+      signers: [],
+    }));
+
+    if (transactionsAndSigners.length === 0) {
+      throw new Error('No MNGO rewards to redeem');
+    }
+
+    // Sign multiple transactions at once for better UX
+    const signedTransactions = await this.signTransactions({
+      transactionsAndSigners,
+      payer,
+    });
+
+    if (signedTransactions) {
+      const txSigs = await Promise.all(
+        signedTransactions.map((signedTransaction) =>
+          this.sendSignedTransaction({ signedTransaction }),
+        ),
+      );
+      return txSigs[0];
+    } else {
+      throw new Error('Unable to sign all RedeemMngo transactions');
+    }
   }
 
   async addMangoAccountInfo(
@@ -3531,6 +4175,110 @@ export class MangoClient {
     return await this.sendTransaction(transaction, payer, additionalSigners);
   }
 
+  async closeAdvancedOrders(
+    mangoGroup: MangoGroup,
+    mangoAccount: MangoAccount,
+    payer: Account | WalletAdapter,
+  ): Promise<TransactionSignature> {
+    const instruction = makeCloseAdvancedOrdersInstruction(
+      this.programId,
+      mangoGroup.publicKey,
+      mangoAccount.publicKey,
+      payer.publicKey,
+      mangoAccount.advancedOrdersKey,
+    );
+    const transaction = new Transaction();
+    transaction.add(instruction);
+    const additionalSigners = [];
+    return await this.sendTransaction(transaction, payer, additionalSigners);
+  }
+
+  async closeSpotOpenOrders(
+    mangoGroup: MangoGroup,
+    mangoAccount: MangoAccount,
+    payer: Account | WalletAdapter,
+    marketIndex: number,
+  ): Promise<TransactionSignature> {
+    const instruction = makeCloseSpotOpenOrdersInstruction(
+      this.programId,
+      mangoGroup.publicKey,
+      mangoAccount.publicKey,
+      payer.publicKey,
+      mangoGroup.dexProgramId,
+      mangoAccount.spotOpenOrders[marketIndex],
+      mangoGroup.spotMarkets[marketIndex].spotMarket,
+      mangoGroup.signerKey,
+    );
+    const transaction = new Transaction();
+    transaction.add(instruction);
+    const additionalSigners = [];
+    return await this.sendTransaction(transaction, payer, additionalSigners);
+  }
+
+  async closeMangoAccount(
+    mangoGroup: MangoGroup,
+    mangoAccount: MangoAccount,
+    payer: Account | WalletAdapter,
+  ): Promise<TransactionSignature> {
+    const instruction = makeCloseMangoAccountInstruction(
+      this.programId,
+      mangoGroup.publicKey,
+      mangoAccount.publicKey,
+      payer.publicKey,
+    );
+    const transaction = new Transaction();
+    transaction.add(instruction);
+    const additionalSigners = [];
+    return await this.sendTransaction(transaction, payer, additionalSigners);
+  }
+
+  async createDustAccount(
+    mangoGroup: MangoGroup,
+    payer: Account | WalletAdapter,
+  ): Promise<TransactionSignature> {
+    const [mangoAccountPk] = await PublicKey.findProgramAddress(
+      [mangoGroup.publicKey.toBytes(), new Buffer('DustAccount', 'utf-8')],
+      this.programId,
+    );
+    const instruction = makeCreateDustAccountInstruction(
+      this.programId,
+      mangoGroup.publicKey,
+      mangoAccountPk,
+      payer.publicKey,
+    );
+    const transaction = new Transaction();
+    transaction.add(instruction);
+    const additionalSigners = [];
+    return await this.sendTransaction(transaction, payer, additionalSigners);
+  }
+
+  async resolveDust(
+    mangoGroup: MangoGroup,
+    mangoAccount: MangoAccount,
+    rootBank: RootBank,
+    mangoCache: MangoCache,
+    payer: Account | WalletAdapter,
+  ): Promise<TransactionSignature> {
+    const [dustAccountPk] = await PublicKey.findProgramAddress(
+      [mangoGroup.publicKey.toBytes(), new Buffer('DustAccount', 'utf-8')],
+      this.programId,
+    );
+    const instruction = makeResolveDustInstruction(
+      this.programId,
+      mangoGroup.publicKey,
+      mangoAccount.publicKey,
+      payer.publicKey,
+      dustAccountPk,
+      rootBank.publicKey,
+      rootBank.nodeBanks[0],
+      mangoCache.publicKey,
+    );
+    const transaction = new Transaction();
+    transaction.add(instruction);
+    const additionalSigners = [];
+    return await this.sendTransaction(transaction, payer, additionalSigners);
+  }
+
   async updateMarginBasket(
     mangoGroup: MangoGroup,
     mangoAccount: MangoAccount,
@@ -3546,5 +4294,430 @@ export class MangoClient {
     transaction.add(instruction);
     const additionalSigners = [];
     return await this.sendTransaction(transaction, payer, additionalSigners);
+  }
+
+  async resolveAllDust(
+    mangoGroup: MangoGroup,
+    mangoAccount: MangoAccount,
+    mangoCache: MangoCache,
+    payer: Account | WalletAdapter,
+  ) {
+    const transactionsAndSigners: {
+      transaction: Transaction;
+      signers: Account[];
+    }[] = [];
+    const [dustAccountPk] = await PublicKey.findProgramAddress(
+      [mangoGroup.publicKey.toBytes(), new Buffer('DustAccount', 'utf-8')],
+      this.programId,
+    );
+    for (const rootBank of mangoGroup.rootBankAccounts) {
+      const transactionAndSigners: {
+        transaction: Transaction;
+        signers: Account[];
+      } = {
+        transaction: new Transaction(),
+        signers: [],
+      };
+      if (rootBank) {
+        const tokenIndex = mangoGroup.getRootBankIndex(rootBank?.publicKey);
+        const nativeDeposit = mangoAccount.getNativeDeposit(
+          rootBank,
+          tokenIndex,
+        );
+        const nativeBorrow = mangoAccount.getNativeBorrow(rootBank, tokenIndex);
+        console.log('nativeDeposit', nativeDeposit.toString());
+        console.log('nativeBorrow', nativeBorrow.toString());
+        console.log('tokenIndex', tokenIndex.toString());
+
+        if (
+          (nativeDeposit.gt(ZERO_I80F48) && nativeDeposit.lt(ONE_I80F48)) ||
+          (nativeBorrow.gt(ZERO_I80F48) && nativeBorrow.lt(ONE_I80F48))
+        ) {
+          const instruction = makeResolveDustInstruction(
+            this.programId,
+            mangoGroup.publicKey,
+            mangoAccount.publicKey,
+            payer.publicKey,
+            dustAccountPk,
+            rootBank.publicKey,
+            rootBank.nodeBanks[0],
+            mangoCache.publicKey,
+          );
+          transactionAndSigners.transaction.add(instruction);
+        }
+      }
+      transactionsAndSigners.push(transactionAndSigners);
+    }
+
+    const signedTransactions = await this.signTransactions({
+      transactionsAndSigners,
+      payer: payer,
+    });
+
+    if (signedTransactions) {
+      for (const signedTransaction of signedTransactions) {
+        if (signedTransaction.instructions.length == 0) {
+          continue;
+        }
+        const txid = await this.sendSignedTransaction({
+          signedTransaction,
+        });
+        console.log(txid);
+      }
+    } else {
+      throw new Error('Unable to sign ResolveDust transactions');
+    }
+  }
+
+  async emptyAndCloseMangoAccount(
+    mangoGroup: MangoGroup,
+    mangoAccount: MangoAccount,
+    mangoCache: MangoCache,
+    mngoIndex: number,
+    payer: Account | WalletAdapter,
+  ): Promise<TransactionSignature[]> {
+    const transactionsAndSigners: {
+      transaction: Transaction;
+      signers: Account[];
+    }[] = [];
+
+    const redeemMngoTransaction = {
+      transaction: new Transaction(),
+      signers: [],
+    };
+    const mngoRootBank = mangoGroup.rootBankAccounts[mngoIndex] as RootBank;
+    const perpMarkets = await Promise.all(
+      mangoAccount.perpAccounts.map((perpAccount, i) => {
+        if (perpAccount.mngoAccrued.eq(ZERO_BN)) {
+          return promiseUndef();
+        } else {
+          return this.getPerpMarket(
+            mangoGroup.perpMarkets[i].perpMarket,
+            mangoGroup.tokens[i].decimals,
+            mangoGroup.tokens[QUOTE_INDEX].decimals,
+          );
+        }
+      }),
+    );
+
+    let redeemedMngo = false;
+    for (let i = 0; i < mangoAccount.perpAccounts.length; i++) {
+      const perpAccount = mangoAccount.perpAccounts[i];
+      if (perpAccount.mngoAccrued.eq(ZERO_BN)) {
+        continue;
+      }
+      redeemedMngo = true;
+      const perpMarket = perpMarkets[i];
+      // this is actually an error state; Means there is mngo accrued but PerpMarket doesn't exist
+      if (perpMarket === undefined) continue;
+
+      const instruction = makeRedeemMngoInstruction(
+        this.programId,
+        mangoGroup.publicKey,
+        mangoGroup.mangoCache,
+        mangoAccount.publicKey,
+        payer.publicKey,
+        perpMarket.publicKey,
+        perpMarket.mngoVault,
+        mngoRootBank.publicKey,
+        mngoRootBank.nodeBanks[0],
+        mngoRootBank.nodeBankAccounts[0].vault,
+        mangoGroup.signerKey,
+      );
+      redeemMngoTransaction.transaction.add(instruction);
+    }
+    transactionsAndSigners.push(redeemMngoTransaction);
+
+    const resolveAllDustTransaction = {
+      transaction: new Transaction(),
+      signers: [],
+    };
+    const [dustAccountPk] = await PublicKey.findProgramAddress(
+      [mangoGroup.publicKey.toBytes(), new Buffer('DustAccount', 'utf-8')],
+      this.programId,
+    );
+
+    for (const rootBank of mangoGroup.rootBankAccounts) {
+      if (rootBank) {
+        const tokenIndex = mangoGroup.getRootBankIndex(rootBank?.publicKey);
+        const tokenMint = mangoGroup.tokens[tokenIndex].mint;
+        const shouldWithdrawMngo = redeemedMngo && tokenIndex === mngoIndex;
+
+        if (mangoAccount.deposits[tokenIndex].isPos() || shouldWithdrawMngo) {
+          const withdrawTransaction: {
+            transaction: Transaction;
+            signers: Account[];
+          } = {
+            transaction: new Transaction(),
+            signers: [],
+          };
+          let tokenAcc = await Token.getAssociatedTokenAddress(
+            ASSOCIATED_TOKEN_PROGRAM_ID,
+            TOKEN_PROGRAM_ID,
+            tokenMint,
+            payer.publicKey,
+          );
+
+          let wrappedSolAccount: Account | null = null;
+          if (tokenMint.equals(WRAPPED_SOL_MINT)) {
+            wrappedSolAccount = new Account();
+            tokenAcc = wrappedSolAccount.publicKey;
+            const space = 165;
+            const lamports =
+              await this.connection.getMinimumBalanceForRentExemption(
+                space,
+                'processed',
+              );
+            withdrawTransaction.transaction.add(
+              SystemProgram.createAccount({
+                fromPubkey: payer.publicKey,
+                newAccountPubkey: tokenAcc,
+                lamports,
+                space,
+                programId: TOKEN_PROGRAM_ID,
+              }),
+            );
+            withdrawTransaction.transaction.add(
+              initializeAccount({
+                account: tokenAcc,
+                mint: WRAPPED_SOL_MINT,
+                owner: payer.publicKey,
+              }),
+            );
+            withdrawTransaction.signers.push(wrappedSolAccount);
+          } else {
+            const tokenAccExists = await this.connection.getAccountInfo(
+              tokenAcc,
+              'processed',
+            );
+            if (!tokenAccExists) {
+              withdrawTransaction.transaction.add(
+                Token.createAssociatedTokenAccountInstruction(
+                  ASSOCIATED_TOKEN_PROGRAM_ID,
+                  TOKEN_PROGRAM_ID,
+                  tokenMint,
+                  tokenAcc,
+                  payer.publicKey,
+                  payer.publicKey,
+                ),
+              );
+            }
+          }
+
+          const instruction = makeWithdrawInstruction(
+            this.programId,
+            mangoGroup.publicKey,
+            mangoAccount.publicKey,
+            payer.publicKey,
+            mangoGroup.mangoCache,
+            rootBank.publicKey,
+            rootBank.nodeBanks[0],
+            rootBank.nodeBankAccounts[0].vault,
+            tokenAcc,
+            mangoGroup.signerKey,
+            mangoAccount.spotOpenOrders,
+            new BN('18446744073709551615'), // u64::MAX to withdraw errything
+            false,
+          );
+          withdrawTransaction.transaction.add(instruction);
+
+          if (wrappedSolAccount) {
+            withdrawTransaction.transaction.add(
+              closeAccount({
+                source: wrappedSolAccount.publicKey,
+                destination: payer.publicKey,
+                owner: payer.publicKey,
+              }),
+            );
+          }
+          transactionsAndSigners.push(withdrawTransaction);
+        }
+
+        const nativeBorrow = mangoAccount.getNativeBorrow(
+          mangoCache.rootBankCache[tokenIndex],
+          tokenIndex,
+        );
+
+        if (
+          shouldWithdrawMngo ||
+          mangoAccount.deposits[tokenIndex].isPos() ||
+          (nativeBorrow.gt(ZERO_I80F48) && nativeBorrow.lt(ONE_I80F48))
+        ) {
+          const instruction = makeResolveDustInstruction(
+            this.programId,
+            mangoGroup.publicKey,
+            mangoAccount.publicKey,
+            payer.publicKey,
+            dustAccountPk,
+            rootBank.publicKey,
+            rootBank.nodeBanks[0],
+            mangoCache.publicKey,
+          );
+          resolveAllDustTransaction.transaction.add(instruction);
+        }
+      }
+    }
+
+    transactionsAndSigners.push(resolveAllDustTransaction);
+
+    const closeAccountsTransaction = {
+      transaction: new Transaction(),
+      signers: [],
+    };
+    for (let i = 0; i < mangoAccount.spotOpenOrders.length; i++) {
+      const openOrders = mangoAccount.spotOpenOrders[i];
+      const spotMarket = mangoGroup.spotMarkets[i].spotMarket;
+      if (!openOrders.equals(zeroKey)) {
+        closeAccountsTransaction.transaction.add(
+          makeCloseSpotOpenOrdersInstruction(
+            this.programId,
+            mangoGroup.publicKey,
+            mangoAccount.publicKey,
+            payer.publicKey,
+            mangoGroup.dexProgramId,
+            openOrders,
+            spotMarket,
+            mangoGroup.signerKey,
+          ),
+        );
+      }
+    }
+    if (!mangoAccount.advancedOrdersKey.equals(zeroKey)) {
+      closeAccountsTransaction.transaction.add(
+        makeCloseAdvancedOrdersInstruction(
+          this.programId,
+          mangoGroup.publicKey,
+          mangoAccount.publicKey,
+          payer.publicKey,
+          mangoAccount.advancedOrdersKey,
+        ),
+      );
+    }
+
+    if (mangoAccount.metaData.version == 0) {
+      closeAccountsTransaction.transaction.add(
+        makeUpgradeMangoAccountV0V1Instruction(
+          this.programId,
+          mangoGroup.publicKey,
+          mangoAccount.publicKey,
+          payer.publicKey,
+        ),
+      );
+    }
+
+    closeAccountsTransaction.transaction.add(
+      makeCloseMangoAccountInstruction(
+        this.programId,
+        mangoGroup.publicKey,
+        mangoAccount.publicKey,
+        payer.publicKey,
+      ),
+    );
+    transactionsAndSigners.push(closeAccountsTransaction);
+
+    const signedTransactions = await this.signTransactions({
+      transactionsAndSigners,
+      payer: payer,
+    });
+
+    const txids: TransactionSignature[] = [];
+    if (signedTransactions) {
+      for (const signedTransaction of signedTransactions) {
+        if (signedTransaction.instructions.length == 0) {
+          continue;
+        }
+        const txid = await this.sendSignedTransaction({
+          signedTransaction,
+        });
+        txids.push(txid);
+        console.log(txid);
+      }
+    } else {
+      throw new Error('Unable to sign emptyAndCloseMangoAccount transactions');
+    }
+
+    return txids;
+  }
+
+  async cancelPerpOrderSide(
+    mangoGroup: MangoGroup,
+    mangoAccount: MangoAccount,
+    perpMarket: PerpMarket,
+    payer: Account | WalletAdapter,
+    side: 'buy' | 'sell',
+    limit: number,
+  ) {
+    const instruction = makeCancelPerpOrdersSideInstruction(
+      this.programId,
+      mangoGroup.publicKey,
+      mangoAccount.publicKey,
+      payer.publicKey,
+      perpMarket.publicKey,
+      perpMarket.bids,
+      perpMarket.asks,
+      side,
+      new BN(limit),
+    );
+
+    const transaction = new Transaction();
+    transaction.add(instruction);
+    const additionalSigners = [];
+    return await this.sendTransaction(transaction, payer, additionalSigners);
+  }
+
+  async setDelegate(
+    mangoGroup: MangoGroup,
+    mangoAccount: MangoAccount,
+    payer: Account | WalletAdapter,
+    delegate: PublicKey,
+  ) {
+    const instruction = makeSetDelegateInstruction(
+      this.programId,
+      mangoGroup.publicKey,
+      mangoAccount.publicKey,
+      payer.publicKey,
+      delegate,
+    );
+
+    const transaction = new Transaction();
+    transaction.add(instruction);
+    const additionalSigners = [];
+    return await this.sendTransaction(transaction, payer, additionalSigners);
+  }
+
+  async changeSpotMarketParams(
+    mangoGroup: MangoGroup,
+    spotMarket: Market,
+    rootBank: RootBank,
+    admin: Account | WalletAdapter,
+
+    maintLeverage: number | undefined,
+    initLeverage: number | undefined,
+    liquidationFee: number | undefined,
+    optimalUtil: number | undefined,
+    optimalRate: number | undefined,
+    maxRate: number | undefined,
+    version: number | undefined,
+  ): Promise<TransactionSignature> {
+    const instruction = makeChangeSpotMarketParamsInstruction(
+      this.programId,
+      mangoGroup.publicKey,
+      spotMarket.publicKey,
+      rootBank.publicKey,
+      admin.publicKey,
+      I80F48.fromNumberOrUndef(maintLeverage),
+      I80F48.fromNumberOrUndef(initLeverage),
+      I80F48.fromNumberOrUndef(liquidationFee),
+      I80F48.fromNumberOrUndef(optimalUtil),
+      I80F48.fromNumberOrUndef(optimalRate),
+      I80F48.fromNumberOrUndef(maxRate),
+      version !== undefined ? new BN(version) : undefined,
+    );
+
+    const transaction = new Transaction();
+    transaction.add(instruction);
+    const additionalSigners = [];
+
+    return await this.sendTransaction(transaction, admin, additionalSigners);
   }
 }
