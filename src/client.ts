@@ -3271,16 +3271,16 @@ export class MangoClient {
       maxLiabTransfer,
     );
 
-    const instruction_cache_prices = makeCachePricesInstruction(
-      this.programId,
-      mangoGroup.publicKey,
-      mangoGroup.mangoCache,
-      mangoGroup.oracles,
-    );
+    // const instruction_cache_prices = makeCachePricesInstruction(
+    //   this.programId,
+    //   mangoGroup.publicKey,
+    //   mangoGroup.mangoCache,
+    //   mangoGroup.oracles,
+    // );
 
     const transaction = new Transaction();
     transaction.add(instruction);
-    transaction.add(instruction_cache_prices);
+    // transaction.add(instruction_cache_prices);
 
     return await this.sendTransaction(transaction, payer, []);
   }
@@ -3315,16 +3315,16 @@ export class MangoClient {
       maxLiabTransfer,
     );
 
-    const instruction_cache_prices = makeCachePricesInstruction(
-      this.programId,
-      mangoGroup.publicKey,
-      mangoGroup.mangoCache,
-      mangoGroup.oracles,
-    );
+    // const instruction_cache_prices = makeCachePricesInstruction(
+    //   this.programId,
+    //   mangoGroup.publicKey,
+    //   mangoGroup.mangoCache,
+    //   mangoGroup.oracles,
+    // );
 
     const transaction = new Transaction();
     transaction.add(instruction);
-    transaction.add(instruction_cache_prices);
+    // transaction.add(instruction_cache_prices);
 
     return await this.sendTransaction(transaction, payer, []);
   }
@@ -3351,16 +3351,16 @@ export class MangoClient {
       baseTransferRequest,
     );
 
-    const instruction_cache_prices = makeCachePricesInstruction(
-      this.programId,
-      mangoGroup.publicKey,
-      mangoGroup.mangoCache,
-      mangoGroup.oracles,
-    );
+    // const instruction_cache_prices = makeCachePricesInstruction(
+    //   this.programId,
+    //   mangoGroup.publicKey,
+    //   mangoGroup.mangoCache,
+    //   mangoGroup.oracles,
+    // );
 
     const transaction = new Transaction();
     transaction.add(instruction);
-    transaction.add(instruction_cache_prices);
+    // transaction.add(instruction_cache_prices);
 
     return await this.sendTransaction(transaction, payer, []);
   }
